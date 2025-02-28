@@ -1,0 +1,44 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*.so
+*.egg
+*.pyc
+*.exe
+*.bat
+*.compiled
+*.js
+*.map
+pydeck*
+*.cfg
+*.cmd
+
+# Distributions
+build/
+dist/
+*.egg-info/
+
+# Virtual environments
+venv/
+env/
+.venv/
+Lib/        # Windows環境でPythonをインストールした場合など
+Lib/*
+activate*
+share/*
+# VS Code
+.vscode/
+.settings/
+
+# macOS
+.DS_Store
+
+#jupyter
+*.ipynb
+
+#others
+Scripts/jsondiff
+Scripts/jsonpatch
+Scripts/jsonpointer
+Scripts/numba
+Scripts/*.csv
