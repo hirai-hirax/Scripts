@@ -42,3 +42,7 @@ Scripts/jsonpatch
 Scripts/jsonpointer
 Scripts/numba
 Scripts/*.csv
+
+.gitignore
+app.py
+app2.py
