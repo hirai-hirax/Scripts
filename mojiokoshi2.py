@@ -5,6 +5,8 @@ import tempfile
 import ffmpeg
 from io import BytesIO
 from pydub import AudioSegment
+import zipfile
+import shutil
 
 # 環境変数から設定を取得（Azure OpenAI のエンドポイント・API キーを設定してください）
 AZURE_OPENAI_ENDPOINT = os.environ.get("AZURE_OPENAI_ENDPOINT")
@@ -71,7 +73,8 @@ def mojiokoshi():
         st.info("オーディオファイルをアップロードしてください。")
 
 def mp3maker():
-    st.title("M4A から指定範囲をモノラルMP3に変換（複数ファイル対応）")
+
+    st.title("M4A から指定範囲をモノラルMP3に変換（まとめてダウンロード対応）")
 
     uploaded_file = st.file_uploader("M4A ファイルをアップロード", type=["m4a"])
 
@@ -95,6 +98,10 @@ def mp3maker():
         s = seconds % 60
         return f"{h}:{m:02}:{s:02}"
 
+    # セッションステートで範囲リストを管理
+    if "time_ranges" not in st.session_state:
+        st.session_state.time_ranges = []
+
     if uploaded_file is not None:
         # 一時ファイルとして保存
         with tempfile.NamedTemporaryFile(delete=False, suffix=".m4a") as temp_m4a:
@@ -106,34 +113,47 @@ def mp3maker():
         duration = len(audio) // 1000  # ミリ秒を秒に変換
         st.write(f"音声の長さ: {seconds_to_hms(duration)}")
 
-        # ユーザーが範囲を入力（複数行対応）
-        st.write("範囲を複数指定できます（1行ずつ H:MM:SS - H:MM:SS 形式で入力）")
-        time_ranges = st.text_area(
-            "例:\n0:00:10 - 0:01:00\n0:02:00 - 0:03:30", 
-            height=150
-        ).splitlines()
+        # 範囲の管理
+        st.subheader("変換する範囲を設定")
+
+        # 範囲を追加するボタン
+        if st.button("範囲を追加"):
+            st.session_state.time_ranges.append({"start": "0:00:00", "end": seconds_to_hms(duration)})
+
+        # 各範囲の入力フォーム
+        for idx, time_range in enumerate(st.session_state.time_ranges):
+            col1, col2, col3 = st.columns([4, 4, 1])
+
+            with col1:
+                start_time = st.text_input(f"開始時間 {idx+1}", value=time_range["start"], key=f"start_{idx}")
+            with col2:
+                end_time = st.text_input(f"終了時間 {idx+1}", value=time_range["end"], key=f"end_{idx}")
+            with col3:
+                if st.button("❌", key=f"remove_{idx}"):
+                    st.session_state.time_ranges.pop(idx)
+                    st.experimental_rerun()
+
+            # 更新された値を保存
+            st.session_state.time_ranges[idx] = {"start": start_time, "end": end_time}
 
         # 変換処理
         if st.button("変換開始"):
             output_files = []
-            
-            for i, line in enumerate(time_ranges):
-                try:
-                    # `H:MM:SS - H:MM:SS` の形式を解析
-                    parts = line.split("-")
-                    if len(parts) != 2:
-                        st.error(f"時間指定のフォーマットが間違っています: {line}")
-                        continue
+            zip_file_path = tempfile.NamedTemporaryFile(delete=False, suffix=".zip").name
+            temp_dir = tempfile.mkdtemp()
 
-                    start_time = hms_to_seconds(parts[0].strip())
-                    end_time = hms_to_seconds(parts[1].strip())
+            for i, time_range in enumerate(st.session_state.time_ranges):
+                try:
+                    start_time = hms_to_seconds(time_range["start"])
+                    end_time = hms_to_seconds(time_range["end"])
 
                     if not (0 <= start_time < end_time <= duration):
-                        st.error(f"無効な時間範囲: {line}")
+                        st.error(f"無効な時間範囲: {time_range['start']} - {time_range['end']}")
                         continue
 
-                    # 一時ファイル名を作成
-                    temp_mp3_path = tempfile.NamedTemporaryFile(delete=False, suffix=f"_{i+1}.mp3").name
+                    # ファイル名に範囲情報を追加
+                    mp3_filename = f"clip_{seconds_to_hms(start_time).replace(':', '-')}_to_{seconds_to_hms(end_time).replace(':', '-')}.mp3"
+                    temp_mp3_path = os.path.join(temp_dir, mp3_filename)
                     output_files.append(temp_mp3_path)
 
                     # ffmpeg を使用して変換
@@ -144,22 +164,26 @@ def mp3maker():
                     st.success(f"変換成功: {seconds_to_hms(start_time)} - {seconds_to_hms(end_time)}")
 
                 except Exception as e:
-                    st.error(f"変換エラー: {line} → {e}")
+                    st.error(f"変換エラー: {time_range['start']} - {time_range['end']} → {e}")
+
+            # ZIP ファイルに圧縮
+            with zipfile.ZipFile(zip_file_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                for file in output_files:
+                    zipf.write(file, os.path.basename(file))
 
             # ダウンロードボタンを表示
-            for i, mp3_file in enumerate(output_files):
-                with open(mp3_file, "rb") as f:
-                    st.download_button(
-                        label=f"MP3をダウンロード ({i+1})",
-                        data=f,
-                        file_name=f"output_{i+1}.mp3",
-                        mime="audio/mp3"
-                    )
-            
+            with open(zip_file_path, "rb") as f:
+                st.download_button(
+                    label="すべてのMP3をZIPでダウンロード",
+                    data=f,
+                    file_name="converted_mp3s.zip",
+                    mime="application/zip"
+                )
+
             # 一時ファイル削除
             os.remove(temp_m4a_path)
-            for mp3_file in output_files:
-                os.remove(mp3_file)
+            os.remove(zip_file_path)
+            shutil.rmtree(temp_dir)
 
 
 def main():
