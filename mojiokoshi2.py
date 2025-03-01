@@ -1,14 +1,32 @@
 import os
 import streamlit as st
 from openai import AzureOpenAI
+import tempfile
+import ffmpeg
+from io import BytesIO
 
 # 環境変数から設定を取得（Azure OpenAI のエンドポイント・API キーを設定してください）
-#AZURE_OPENAI_ENDPOINT = os.environ.get("AZURE_OPENAI_ENDPOINT")
-AZURE_OPENAI_ENDPOINT = "https://ai-hir3147197ai120585502465.openai.azure.com/"
+AZURE_OPENAI_ENDPOINT = os.environ.get("AZURE_OPENAI_ENDPOINT")
 AZURE_OPENAI_API_KEY = os.environ.get("AZURE_OPENAI_API_KEY")
 API_VERSION = "2023-09-01-preview"  # ご利用の API バージョンに合わせてください
 
-# AzureOpenAI クライアントのインスタンスを生成
+
+
+def convert_to_mp3_from_mp4(file: BytesIO)
+
+    # ffmpegのinputはファイル形式しか受け付けないためtempfileで一時ファイルを作成します
+    with tempfile.NamedTemporaryFile() as temp_file:
+        temp_file.write(file.getvalue())
+        # mp3に変換します
+        (
+            ffmpeg
+            .input(temp_file.name)
+            .output("output.mp3")
+            .run()
+        )
+
+
+# Azure:OpenAI クライアントのインスタンスを生成
 client = AzureOpenAI(
     azure_endpoint=AZURE_OPENAI_ENDPOINT,
     api_key=AZURE_OPENAI_API_KEY,
