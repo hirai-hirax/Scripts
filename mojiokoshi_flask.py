@@ -6,10 +6,7 @@ from openai import AzureOpenAI
 app = Flask(__name__)
 
 # 環境変数から設定を取得（Azure OpenAI のエンドポイント・API キーを設定してください）
-#AZURE_OPENAI_ENDPOINT = os.environ.get("AZURE_OPENAI_ENDPOINT")
-AZURE_OPENAI_ENDPOINT = "https://ai-hir3147197ai120585502465.openai.azure.com/"
-
-
+AZURE_OPENAI_ENDPOINT = os.environ.get("AZURE_OPENAI_ENDPOINT")
 AZURE_OPENAI_API_KEY = os.environ.get("AZURE_OPENAI_API_KEY")
 API_VERSION = "2023-09-01-preview"  # 適切な API バージョンに合わせてください
 
