@@ -45,7 +45,7 @@ prompt = """
 
 # 変換後の音声データ（Base64エンコード済み）をAzure OpenAIに送信する例
 completion = client.chat.completions.create(
-    model="gpt-4o-mini-audio-preview",
+    model="gpt-4o-mini-realtime-preview",
     modalities=["text"],
     messages=[
         {
