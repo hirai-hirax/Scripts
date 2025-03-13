@@ -143,6 +143,7 @@ def mojiokoshi_gpt4o_audio_api():
                     ]
                 )
                 transcript_text = completion.choices[0].message.content
+                os.remove("sample.wav")
                 st.write(completion)
                 # Shift_JIS でエンコードしてダウンロード用バイト列に変換
                 transcript_bytes = transcript_text.encode("shift_jis")
