@@ -8,6 +8,7 @@ from pydub import AudioSegment
 import zipfile
 import shutil
 import base64
+import fitz
 
 # 環境変数から設定を取得（Azure OpenAI のエンドポイント・API キーを設定してください）
 AZURE_OPENAI_ENDPOINT = os.environ.get("AZURE_OPENAI_ENDPOINT")
@@ -27,6 +28,24 @@ def convert_to_mp3_from_mp4(file: BytesIO):
             .run()
         )
     return temp_file
+
+def get_text_from_pdf(file: BytesIO):
+    # ファイル全体をバイト列として読み込む
+    file_bytes = file.read()
+    # ファイルポインタをリセット（必要に応じて）
+    file.seek(0)
+    # バイト列とファイルタイプを指定してPDFを開く
+    pdf_document = fitz.open(stream=file_bytes, filetype='pdf')
+    text = ""
+    for page in pdf_document:
+        text += page.get_text()
+    pdf_document.close()
+    return text
+
+def get_text_from_txt(file: BytesIO):
+    # テキストファイルを読み込む
+    text = file.read().decode("utf-8")
+    return text
 
 def mojiokoshi():
     model = "whisper"
@@ -75,14 +94,13 @@ def mojiokoshi():
         st.info("オーディオファイルをアップロードしてください。")
 
 
-def mojiokoshi_gpt4o_audio_api():
-    model = "gpt-4o-mini-audio-preview"
+def mojiokoshi_gpt4o_audio_api(model):
     client = AzureOpenAI(
     api_key=AZURE_OPENAI_API_KEY,
     azure_endpoint=AZURE_OPENAI_ENDPOINT,
     api_version=API_VERSION
 )
-    st.title("gpt-4o-mini-audio-previewを使ったオーディオファイルの文字起こし＆テキストファイルダウンロード")
+    st.title("{}を使ったオーディオファイルの文字起こし＆テキストファイルダウンロード".format(model))
     st.write("以下のファイルアップローダーからオーディオファイルをアップロードし、【文字起こし開始】ボタンを押してください。")
 
     prompt = """
@@ -99,10 +117,33 @@ def mojiokoshi_gpt4o_audio_api():
     if uploaded_file is not None:
         st.write(f"アップロードされたファイル名: {uploaded_file.name}")
         # ファイルの拡張子から形式を自動判別（例：".mp3" → "mp3"）
+        uploaded_pdf = st.file_uploader("文字起こしの参考になるPDFをアップロード(省略可)", type=["pdf"])
+        if uploaded_pdf is not None:
+            # PDFファイルを読み込む
+            pdf_text = get_text_from_pdf(uploaded_pdf)
+            st.write(pdf_text)
+            prompt += f"\n\n参考PDFの内容:\n{pdf_text}"
 
+        uploaded_txt = st.file_uploader("文字起こしの参考になるテキストをアップロード(省略可)", type=["txt"]) 
+
+        if uploaded_txt is not None:
+            # テキストファイルを読み込む
+            txt_text = get_text_from_txt(uploaded_txt)
+            prompt += f"\n\n参考テキストの内容:\n{txt_text}"
+            st.write(txt_text)
+
+        additional_text = st.text_area("補足事項など", height=200)
 
         if st.button("文字起こし開始"):
             try:
+                # 追加のテキストが入力された場合、プロンプトに追加
+                if uploaded_pdf:
+                    prompt += f"\n\n参考PDFの内容:\n{additional_text}"
+                if uploaded_txt:
+                    prompt += f"\n\n参考テキストの内容:\n{additional_text}"
+                if additional_text:
+                    prompt += f"\n\nその他補足事項:\n{additional_text}"
+
                 _, ext = os.path.splitext(uploaded_file.name)
                 audio_format = ext.lower().strip(".")
 
@@ -274,13 +315,13 @@ def mp3maker():
 
 
 def main():
-    app_selection = st.sidebar.selectbox("アプリを選択", ["文字起こし", "GPT-4o-audioで文字起こし","動画->MP3切り出し"])
+    app_selection = st.sidebar.selectbox("文字起こしライブラリまたはアプリを選択", ["whisper", "gpt-4o-audio-preview","gpt-4o-mini-audio-preview","動画->MP3切り出し"])
 
 
-    if app_selection == "文字起こし":
+    if app_selection == "whisper":
         mojiokoshi()
-    elif app_selection == "GPT-4o-audioで文字起こし":
-        mojiokoshi_gpt4o_audio_api()
+    elif app_selection in ("gpt-4o-audio-preview","gpt-4o-mini-audio-preview"):
+        mojiokoshi_gpt4o_audio_api(app_selection)
 
     elif app_selection == "動画->MP3切り出し":
         mp3maker()
