@@ -86,7 +86,7 @@ def mojiokoshi(duration, offset):
                             model=model,
                             file=file_tuple,
                             language="ja",
-                            prompt="こんにちは。\nはい、こんにちは。\nお元気ですか？\nはい、元気です。\nそれは何よりです。では早速始めましょう。\nはい、よろしくお願いいたします。"
+                            prompt="こんにちは。\n\nはい、こんにちは。\n\nお元気ですか？\n\nはい、元気です。\n\nそれは何よりです。では早速始めましょう。\n\nはい、よろしくお願いいたします。"
                         )
                         chunk_text = transcript.model_dump().get("text", "")
                         full_transcript += f"\n{chunk_text}"
@@ -385,7 +385,7 @@ def mp3maker():
 
 def main():
     app_selection = st.sidebar.selectbox("文字起こしライブラリまたはアプリを選択", ["whisper", "gpt-4o-audio-preview","gpt-4o-mini-audio-preview","動画->MP3切り出し"])
-    duration = st.sidebar.number_input("1推論当たりの時間(sec)", min_value=0, max_value=1800,value=30, step=1)
+    duration = st.sidebar.number_input("1推論当たりの時間(sec)", min_value=0, max_value=1800,value=180, step=1)
     offset = st.sidebar.number_input("推論単位の重複させる時間(sec)", min_value=0, max_value=300,value=10, step=1)
 
     if app_selection == "whisper":
