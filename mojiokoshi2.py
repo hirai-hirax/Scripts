@@ -9,6 +9,8 @@ import zipfile
 import shutil
 import base64
 import fitz
+import pandas as pd
+
 
 # 環境変数から設定を取得（Azure OpenAI のエンドポイント・API キーを設定してください）
 AZURE_OPENAI_ENDPOINT = os.environ.get("AZURE_OPENAI_ENDPOINT")
@@ -46,10 +48,8 @@ def get_text_from_txt(file: BytesIO):
     # テキストファイルを読み込む
     text = file.read().decode("utf-8")
     return text
-
-def mojiokoshi():
+def mojiokoshi(duration, offset):
     model = "whisper"
-    # Azure:OpenAI クライアントのインスタンスを生成
     client = AzureOpenAI(
         azure_endpoint=AZURE_OPENAI_ENDPOINT,
         api_key=AZURE_OPENAI_API_KEY,
@@ -59,48 +59,63 @@ def mojiokoshi():
     st.title("オーディオファイルの文字起こし＆テキストファイルダウンロード")
     st.write("以下のファイルアップローダーからオーディオファイルをアップロードし、【文字起こし開始】ボタンを押してください。")
 
-    # Streamlit のファイルアップローダー（audio/* のみ許可）
     uploaded_file = st.file_uploader("オーディオファイルを選択", type=["mp3", "wav", "m4a", "mp4", "webm", "ogg"])
- 
+
     if uploaded_file is not None:
         st.write(f"アップロードされたファイル名: {uploaded_file.name}")
 
         if st.button("文字起こし開始"):
             try:
-                # FileStorage の情報をタプル形式に変換 (filename, stream, content_type)
-                file_tuple = (uploaded_file.name, uploaded_file, uploaded_file.type)
-                # AzureOpenAI クライアント経由で文字起こし API を呼び出し
-                transcript = client.audio.transcriptions.create(
-                    model=model,  # Azure ポータル上のデプロイ名に合わせてください
-                    file=file_tuple
-                )
-                # transcript は pydantic モデルなので dict に変換して "text" フィールドを取得
-                transcript_text = transcript.model_dump().get("text", "")
-                
-                st.subheader("文字起こし結果")
-                st.text_area("結果", transcript_text, height=300)
+                audio_format = uploaded_file.name.split(".")[-1]
+                audio = AudioSegment.from_file(uploaded_file, format=audio_format)
+                chunk_duration_ms = duration * 1000  # 15分 = 900000ミリ秒
+                total_duration_ms = len(audio)
+                num_chunks = (total_duration_ms + chunk_duration_ms - 1) // chunk_duration_ms
 
-                # Shift_JIS でエンコードしてダウンロード用バイト列に変換
-                transcript_bytes = transcript_text.encode("shift_jis")
+                full_transcript = ""
+                for i in range(num_chunks):
+                    start_ms = i * chunk_duration_ms
+                    end_ms = min((i + 1) * chunk_duration_ms, total_duration_ms)
+                    chunk = audio[start_ms:end_ms]
+
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+                        chunk.export(tmp.name, format="wav")
+                        file_tuple = (f"chunk_{i+1}.wav", open(tmp.name, "rb"), "audio/wav")
+
+                        transcript = client.audio.transcriptions.create(
+                            model=model,
+                            file=file_tuple,
+                            language="ja",
+                            prompt="こんにちは。\nはい、こんにちは。\nお元気ですか？\nはい、元気です。\nそれは何よりです。では早速始めましょう。\nはい、よろしくお願いいたします。"
+                        )
+                        chunk_text = transcript.model_dump().get("text", "")
+                        full_transcript += f"\n{chunk_text}"
+
+                st.subheader("文字起こし結果（全文）")
+                st.text_area("結果", full_transcript.strip(), height=400)
+
+                transcript_bytes = full_transcript.encode("shift_jis")
                 st.download_button(
                     label="文字起こし結果をダウンロード",
                     data=transcript_bytes,
                     file_name="transcript.txt",
                     mime="text/plain; charset=shift_jis"
                 )
+
             except Exception as e:
                 st.error(f"エラーが発生しました: {str(e)}")
     else:
         st.info("オーディオファイルをアップロードしてください。")
 
 
-def mojiokoshi_gpt4o_audio_api(model):
+def mojiokoshi_gpt4o_audio_api(model, duration, offset):
     client = AzureOpenAI(
-    api_key=AZURE_OPENAI_API_KEY,
-    azure_endpoint=AZURE_OPENAI_ENDPOINT,
-    api_version=API_VERSION
-)
-    st.title("{}を使ったオーディオファイルの文字起こし＆テキストファイルダウンロード".format(model))
+        api_key=os.environ.get("AZURE_OPENAI_API_KEY"),
+        azure_endpoint=os.environ.get("AZURE_OPENAI_ENDPOINT"),
+        api_version="2023-09-01-preview"
+    )
+
+    st.title(f"{model}を使ったオーディオファイルの文字起こし＆テキストファイルダウンロード")
     st.write("以下のファイルアップローダーからオーディオファイルをアップロードし、【文字起こし開始】ボタンを押してください。")
 
     prompt = """
@@ -111,23 +126,25 @@ def mojiokoshi_gpt4o_audio_api(model):
     最終的な文字起こしは、話者と発言内容をタブ区切りで出力してください。
     """
 
-    # Streamlit のファイルアップローダー（audio/* のみ許可）
+    if "transcript_df" not in st.session_state:
+        st.session_state["transcript_df"] = pd.DataFrame(columns=["話者", "発言"])
+    if "audio_chunks" not in st.session_state:
+        st.session_state["audio_chunks"] = []
+    if "current_chunk_index" not in st.session_state:
+        st.session_state["current_chunk_index"] = 0
+
     uploaded_file = st.file_uploader("オーディオファイルを選択", type=["mp3", "wav", "m4a", "mp4", "webm", "ogg"])
 
     if uploaded_file is not None:
         st.write(f"アップロードされたファイル名: {uploaded_file.name}")
-        # ファイルの拡張子から形式を自動判別（例：".mp3" → "mp3"）
         uploaded_pdf = st.file_uploader("文字起こしの参考になるPDFをアップロード(省略可)", type=["pdf"])
         if uploaded_pdf is not None:
-            # PDFファイルを読み込む
             pdf_text = get_text_from_pdf(uploaded_pdf)
             st.write(pdf_text)
             prompt += f"\n\n参考PDFの内容:\n{pdf_text}"
 
-        uploaded_txt = st.file_uploader("文字起こしの参考になるテキストをアップロード(省略可)", type=["txt"]) 
-
+        uploaded_txt = st.file_uploader("文字起こしの参考になるテキストをアップロード(省略可)", type=["txt"])
         if uploaded_txt is not None:
-            # テキストファイルを読み込む
             txt_text = get_text_from_txt(uploaded_txt)
             prompt += f"\n\n参考テキストの内容:\n{txt_text}"
             st.write(txt_text)
@@ -136,7 +153,6 @@ def mojiokoshi_gpt4o_audio_api(model):
 
         if st.button("文字起こし開始"):
             try:
-                # 追加のテキストが入力された場合、プロンプトに追加
                 if uploaded_pdf:
                     prompt += f"\n\n参考PDFの内容:\n{additional_text}"
                 if uploaded_txt:
@@ -146,21 +162,41 @@ def mojiokoshi_gpt4o_audio_api(model):
 
                 _, ext = os.path.splitext(uploaded_file.name)
                 audio_format = ext.lower().strip(".")
+                audio = AudioSegment.from_file(uploaded_file, format=audio_format).set_channels(1)
 
-                # 音声ファイルを読み込む
-                audio = AudioSegment.from_file(uploaded_file, format=audio_format)
-                # モノラル（1チャンネル）に変換
-                mono_audio = audio.set_channels(1)
+                total_duration_ms = len(audio)
+                chunk_duration_ms = duration * 1000
+                num_chunks = (total_duration_ms + chunk_duration_ms - 1) // chunk_duration_ms
+                st.session_state["audio_chunks"] = []
 
-                # 読み込んだ音声データ（モノラル）をWAV形式に変換して出力
-                output_wav = "sample.wav"
-                mono_audio.export(output_wav, format="wav")
+                for i in range(num_chunks):
+                    start_ms = i * chunk_duration_ms
+                    end_ms = min((i + 1) * chunk_duration_ms + offset * 1000, total_duration_ms)
+                    chunk = audio[start_ms:end_ms]
+                    st.session_state["audio_chunks"].append(chunk)
 
-                # 変換したWAVファイルを読み込み、Base64エンコードする
-                with open(output_wav, "rb") as wav_file:
-                    encoded_string = base64.b64encode(wav_file.read()).decode("utf-8")
+                st.session_state["current_chunk_index"] = 0
+                st.success("音声の分割が完了しました。\n再開ボタンを押して推論を開始してください。")
+            except Exception as e:
+                st.error(f"エラーが発生しました: {str(e)}")
 
-                # AzureOpenAI クライアント経由で文字起こし API を呼び出し
+        if st.button("再開") and st.session_state["current_chunk_index"] < len(st.session_state["audio_chunks"]):
+            try:
+                i = st.session_state["current_chunk_index"]
+                chunk = st.session_state["audio_chunks"][i]
+
+                temp_path = f"chunk_{i}.wav"
+                chunk.export(temp_path, format="wav")
+
+                with open(temp_path, "rb") as wav_file:
+                    encoded_chunk = base64.b64encode(wav_file.read()).decode("utf-8")
+
+                if not st.session_state["transcript_df"].empty:
+                    context_text = "\n".join([f"{row['話者']}\t{row['発言']}" for _, row in st.session_state["transcript_df"].iterrows()])
+                    contextual_prompt = prompt + f"\n\nこれまでの文脈:\n{context_text}"
+                else:
+                    contextual_prompt = prompt
+
                 completion = client.chat.completions.create(
                     model=model,
                     modalities=["text"],
@@ -168,14 +204,11 @@ def mojiokoshi_gpt4o_audio_api(model):
                         {
                             "role": "user",
                             "content": [
-                                {
-                                    "type": "text",
-                                    "text": prompt
-                                },
+                                {"type": "text", "text": contextual_prompt + f"\n\n（{i+1}つ目のセクション）"},
                                 {
                                     "type": "input_audio",
                                     "input_audio": {
-                                        "data": encoded_string,
+                                        "data": encoded_chunk,
                                         "format": "wav"
                                     }
                                 }
@@ -183,21 +216,57 @@ def mojiokoshi_gpt4o_audio_api(model):
                         },
                     ]
                 )
-                transcript_text = completion.choices[0].message.content
-                os.remove("sample.wav")
-                st.write(completion)
-                # Shift_JIS でエンコードしてダウンロード用バイト列に変換
-                transcript_bytes = transcript_text.encode("shift_jis")
-                st.download_button(
-                    label="文字起こし結果をダウンロード",
-                    data=transcript_bytes,
-                    file_name="transcript.tsv",
-                    mime="text/plain; charset=shift_jis"
-                )
+
+                transcript_part = completion.choices[0].message.content
+                os.remove(temp_path)
+
+                lines = [line.strip().split("\t") for line in transcript_part.strip().splitlines() if "\t" in line]
+                df = pd.DataFrame(lines, columns=["話者", "発言"])
+                combined_df = pd.concat([st.session_state["transcript_df"], df], ignore_index=True)
+                st.session_state["transcript_df"] = combined_df.drop_duplicates(subset=["話者", "発言"]).reset_index(drop=True)
+
+                st.session_state["current_chunk_index"] += 1
+                st.success(f"セクション {i+1} の文字起こしが完了しました。テーブルを編集し、必要に応じて再開してください。")
+
             except Exception as e:
                 st.error(f"エラーが発生しました: {str(e)}")
+
+        st.subheader("全体文字起こし結果（編集可能）")
+        st.session_state["transcript_df"] = st.data_editor(
+            st.session_state["transcript_df"], key="full_transcript_editor", num_rows="dynamic"
+        )
+
+        if st.button("全文整形・要約"):
+            # 文を結合して文脈を整えるための最終整形処理
+            raw_transcript = "".join([f"{row['話者']}	{row['発言']}" for _, row in st.session_state["transcript_df"].iterrows()])
+
+            # ChatGPTを使って会話の流れを自然に整形
+            refine_model = "gpt-4o-mini"  # 音声不要の整形には通常のgptを使用
+            refine_prompt = f"""
+            以下は複数話者の会話をタブ区切りで記録したものです。不自然な会話の切れ目や重複を取り除き、全体を読みやすく自然な流れに整えてください。
+
+            {raw_transcript}
+            """
+            refine_completion = client.chat.completions.create(
+                model=refine_model,
+                messages=[
+                    {"role": "user", "content": refine_prompt}
+                ]
+            )
+            final_transcript = refine_completion.choices[0].message.content
+
+            transcript_bytes = final_transcript.encode("shift_jis")
+            st.download_button(
+                label="全文の文字起こしをダウンロード",
+                data=transcript_bytes,
+                file_name="transcript.tsv",
+                mime="text/plain; charset=shift_jis"
+            )
+
+            st.text_area("全文表示", final_transcript, height=400)
     else:
         st.info("オーディオファイルをアップロードしてください。")
+
 
 
 def mp3maker():
@@ -316,12 +385,13 @@ def mp3maker():
 
 def main():
     app_selection = st.sidebar.selectbox("文字起こしライブラリまたはアプリを選択", ["whisper", "gpt-4o-audio-preview","gpt-4o-mini-audio-preview","動画->MP3切り出し"])
-
+    duration = st.sidebar.number_input("1推論当たりの時間(sec)", min_value=0, max_value=1800,value=30, step=1)
+    offset = st.sidebar.number_input("推論単位の重複させる時間(sec)", min_value=0, max_value=300,value=10, step=1)
 
     if app_selection == "whisper":
-        mojiokoshi()
+        mojiokoshi(duration, offset)
     elif app_selection in ("gpt-4o-audio-preview","gpt-4o-mini-audio-preview"):
-        mojiokoshi_gpt4o_audio_api(app_selection)
+        mojiokoshi_gpt4o_audio_api(app_selection,duration,offset)
 
     elif app_selection == "動画->MP3切り出し":
         mp3maker()
