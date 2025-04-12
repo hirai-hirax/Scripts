@@ -233,7 +233,11 @@ def mojiokoshi_gpt4o_audio_api(model, duration, offset):
 
         st.subheader("全体文字起こし結果（編集可能）")
         st.session_state["transcript_df"] = st.data_editor(
-            st.session_state["transcript_df"], key="full_transcript_editor", num_rows="dynamic"
+            st.session_state["transcript_df"], key="full_transcript_editor", num_rows="dynamic",use_container_width=True,
+            column_config={
+                "話者": st.column_config.TextColumn(label="話者"),
+                "発言": st.column_config.TextColumn(label="発言"),
+            },
         )
 
         if st.button("全文整形・要約"):
