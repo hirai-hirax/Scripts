@@ -44,3 +44,4 @@ Scripts/numba
 Scripts/*.csv
 
 .gitignore
+numba
