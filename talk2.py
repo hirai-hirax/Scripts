@@ -33,7 +33,6 @@ def extract_text_from_pdf(file) -> str:
             text.append(txt)
     return "\n".join(text)
 
-
 def translate_and_speak(text=None, audio_bytes=None, audio_ext="wav", reference=None):
     # messages の組立
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
