@@ -47,3 +47,5 @@ Scripts/*.csv
 numba
 output.wav
 sample.html
+env_template.txt
+system_audio_transcript_20250521_232506.txt

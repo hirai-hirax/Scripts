@@ -48,6 +48,7 @@ def get_text_from_txt(file: BytesIO):
     # テキストファイルを読み込む
     text = file.read().decode("utf-8")
     return text
+
 def mojiokoshi(duration, offset):
     model = "whisper"
     client = AzureOpenAI(
