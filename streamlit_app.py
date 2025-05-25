@@ -1,19 +1,15 @@
 #!/usr/bin/env python3
 import os
 from pathlib import Path
-
 import streamlit as st
 from dotenv import load_dotenv
-
 import pandas as pd
 import fitz
 import docx
 from pptx import Presentation
-
 from langchain_openai import AzureOpenAIEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain.docstore.document import Document
-
 from openai import AzureOpenAI
 
 # Load environment variables
