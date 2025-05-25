@@ -9,8 +9,8 @@ AZURE_OPENAI_API_KEY = os.environ.get("AZURE_OPENAI_API_KEY")
 API_VERSION = "2023-09-01-preview"
 
 client = AzureOpenAI(
-    api_key=AZURE_OPENAI_API_KEY,
     azure_endpoint=AZURE_OPENAI_ENDPOINT,
+    api_key=AZURE_OPENAI_API_KEY,
     api_version=API_VERSION
 )
 

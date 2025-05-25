@@ -99,7 +99,9 @@ def split_audio_chunks(audio_path, chunk_sec=600.0, overlap_sec=30.0, sr=16000):
 
 def transcribe_chunk(chunk_path):
     client = AzureOpenAI(
-        azure_endpoint=AZURE_OPENAI_ENDPOINT, api_key=AZURE_OPENAI_API_KEY, api_version=API_VERSION
+        azure_endpoint=AZURE_OPENAI_ENDPOINT,
+        api_key=AZURE_OPENAI_API_KEY,
+        api_version=API_VERSION
     )
     with open(chunk_path, "rb") as f:
         return client.audio.transcriptions.create(

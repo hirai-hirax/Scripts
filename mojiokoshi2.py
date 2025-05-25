@@ -111,9 +111,9 @@ def mojiokoshi(duration, offset):
 
 def mojiokoshi_gpt4o_audio_api(model, duration, offset):
     client = AzureOpenAI(
-        api_key=os.environ.get("AZURE_OPENAI_API_KEY"),
-        azure_endpoint=os.environ.get("AZURE_OPENAI_ENDPOINT"),
-        api_version="2023-09-01-preview"
+        azure_endpoint=AZURE_OPENAI_ENDPOINT,
+        api_key=AZURE_OPENAI_API_KEY,
+        api_version=API_VERSION
     )
 
     st.title(f"{model}を使ったオーディオファイルの文字起こし＆テキストファイルダウンロード")

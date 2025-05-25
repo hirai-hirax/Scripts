@@ -1,0 +1,11 @@
+numpy
+openai
+python-dotenv
+scipy
+streamlit
+pymupdf
+python-docx
+pandas
+python-pptx
+openpyxl
+markitdown
