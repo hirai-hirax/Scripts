@@ -78,7 +78,7 @@ def translate_and_speak(system_prompt,
     return transcript, audio_out
 
 # --- Streamlit UI ---
-st.title("🈂️ 日本語→英語 翻訳＋音声合成（参考資料対応版）")
+st.title("日本語→英語 翻訳and/or音声合成")
 
 # 参考資料ファイルのアップロード
 uploaded_ref = st.file_uploader(
