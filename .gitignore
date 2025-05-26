@@ -54,3 +54,5 @@ jsondiff
 jsonpointer
 vba_extract.py
 output.txt
+.env
+notes/*
