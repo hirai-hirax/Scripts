@@ -9,3 +9,4 @@ pandas
 python-pptx
 openpyxl
 markitdown
+extract_msg
