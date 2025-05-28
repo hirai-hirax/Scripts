@@ -56,3 +56,10 @@ vba_extract.py
 output.txt
 .env
 notes/*
+azure_realtime_sample.py
+input.wav
+
+
+.gitignore
+
+talk.log

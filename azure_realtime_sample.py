@@ -5,6 +5,7 @@ import pyaudio
 import numpy as np
 import base64
 import json
+from openai import AzureOpenAI
 
 # 環境変数からエンドポイントとAPIキーを取得
 AZURE_OPENAI_ENDPOINT = os.environ.get("AZURE_OPENAI_ENDPOINT")
@@ -17,6 +18,12 @@ HEADERS = {
     "Authorization": f"Bearer {AZURE_OPENAI_API_KEY}",
     "OpenAI-Beta": "realtime=v1"
 }
+# Azure OpenAI Service client initialization
+client = AzureOpenAI(
+    azure_endpoint=AZURE_OPENAI_ENDPOINT,
+    api_key=AZURE_OPENAI_API_KEY,
+    api_version="2024-12-17"
+)
 
 # 音声入力の設定
 CHUNK = 1024
@@ -59,7 +66,34 @@ async def receive_response(websocket):
     async for message in websocket:
         response = json.loads(message)
         if response.get("type") == "text":
-            print(f"AIからの応答: {response['text']}")
+            japanese = response["text"]
+            print(f"文字起こし（日本語）: {japanese}")
+            # 翻訳
+            resp_tr = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": "日本語を英語に翻訳してください。"},
+                    {"role": "user", "content": japanese}
+                ]
+            )
+            translation = resp_tr.choices[0].message.content
+            print(f"翻訳（英語）: {translation}")
+            # 合成音声
+            resp_audio = client.chat.completions.create(
+                model="gpt-4o-mini-audio-preview",
+                modalities=["audio"],
+                audio={"voice": "alloy", "format": "wav"},
+                messages=[{"role": "user", "content": translation}]
+            )
+            audio_b64 = resp_audio.choices[0].message.audio.data
+            audio_bytes = base64.b64decode(audio_b64)
+            # 再生
+            p_play = pyaudio.PyAudio()
+            stream_out = p_play.open(format=FORMAT, channels=CHANNELS, rate=RATE, output=True)
+            stream_out.write(audio_bytes)
+            stream_out.stop_stream()
+            stream_out.close()
+            p_play.terminate()
 
 # メイン関数
 async def main():
