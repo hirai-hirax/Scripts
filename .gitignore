@@ -63,3 +63,7 @@ input.wav
 .gitignore
 
 talk.log
+talk_test.py
+test_results.txt
+output.txt
+search_temperature_top_p.py
