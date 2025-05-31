@@ -495,7 +495,7 @@ def main():
         """,
         unsafe_allow_html=True
     )
-    app_selection = st.sidebar.selectbox("文字起こしライブラリまたはアプリを選択", ["whisper", "動画->MP3切り出し"])
+    app_selection = st.sidebar.selectbox("文字起こしライブラリまたはアプリを選択", ["whisper"])
     duration = st.sidebar.number_input("1推論当たりの時間(sec)", min_value=0, max_value=1800, value=180, step=1)
     #offset = st.sidebar.number_input("推論単位の重複させる時間(sec)", min_value=0, max_value=300,value=10, step=1)
 
