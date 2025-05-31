@@ -26,7 +26,7 @@ summary_prompt = """
     ユーザーから、PDFから抽出されたテキストを渡されます。当該のテキストの内容を読んだ上で、150文字程度の要約を生成してください。
 """
 
-def generate_keywords(model,FilePathOfPdf):
+def generate_keywords(model, FilePathOfPdf):
     # クライアント初期化
     text = get_text_from_pdf(FilePathOfPdf)
     client = AzureOpenAI(
@@ -37,17 +37,14 @@ def generate_keywords(model,FilePathOfPdf):
 
     response = client.chat.completions.create(
         model=model,
-         messages=[
-        {"role": "system", 
-        "content": summary_prompt},
-        {"role": "user",
-        "content": text},
+        messages=[
+            {"role": "system", "content": summary_prompt},
+            {"role": "user", "content": text},
         ],
     )
     return response.choices[0].message.content
 
 def convert_to_mp3_from_mp4(file: BytesIO):
-
     # ffmpegのinputはファイル形式しか受け付けないためtempfileで一時ファイルを作成します
     with tempfile.NamedTemporaryFile() as temp_file:
         temp_file.write(file.getvalue())
@@ -102,7 +99,7 @@ def mojiokoshi(duration, offset):
         except Exception as e:
             st.warning(f"セッションの復元に失敗しました: {e}")
 
-    st.title("オーディオファイルの文字起こし＆テキストファイルダウンロード")
+    st.title("オーディオファイルの文字起こし")
     # --- セッションリセットボタン（サイドバーに移動） ---
     if st.sidebar.button("すべてのセッションをリセット"):
         st.session_state.clear()
@@ -113,7 +110,7 @@ def mojiokoshi(duration, offset):
             st.sidebar.success("セッションをリセットしました。")
         except Exception as e:
             st.sidebar.warning(f"セッションファイルの削除に失敗しました: {e}")
-    st.write("以下のファイルアップローダーからPDFファイルをアップロードし、要約を生成してから、オーディオファイルをアップロードしてください。")
+    st.write("会議資料とオーディオファイルをアップロードしてください。")
 
     # PDFファイルアップロード
     pdf_file = st.file_uploader("要約に使うPDFファイルを選択", type=["pdf"])
@@ -210,6 +207,9 @@ def mojiokoshi(duration, offset):
                 for r in results:
                     if "segments" in r and r["segments"]:
                         for seg in r["segments"]:
+                            seg = seg.copy()
+                            seg["start"] += r["start_sec"]
+                            seg["end"] += r["start_sec"]
                             all_segments.append(seg)
                 if all_segments:
                     seg_df = pd.DataFrame(all_segments)
@@ -253,8 +253,7 @@ def mojiokoshi(duration, offset):
         if "seg_editor_key" not in st.session_state:
             import time
             st.session_state["seg_editor_key"] = str(time.time())
-        st.subheader("Whisperセグメント（テーブル表示・編集可）")
-        st.markdown("**speaker列に話者名を入力してください（例: '話者1', '話者2' など）**")
+        st.subheader("文字起こし結果")
 
         # st.multiselectで行選択
         display_df = st.session_state["seg_df"].loc[:, ["speaker", "text", "start"]]
@@ -280,8 +279,9 @@ def mojiokoshi(duration, offset):
         )
         st.session_state["seg_df"].loc[:, ["speaker", "text", "start"]] = edited_df
 
+        # --- data_editorの下にマージ・分割ウィジェットを配置 ---
         # 行選択用のmultiselect
-        selected_indices = st.sidebar.multiselect(
+        selected_indices = st.multiselect(
             "マージしたい行を選択してください（複数選択可）",
             options=list(st.session_state["seg_df"].index),
             format_func=lambda i: f"{st.session_state['seg_df'].loc[i, 'speaker']} | {st.session_state['seg_df'].loc[i, 'text'][:20]}...",
@@ -298,8 +298,7 @@ def mojiokoshi(duration, offset):
         })
         st.session_state["df"] = df_from_seg
 
-        st.subheader("選択した行をマージ")
-        if st.sidebar.button("選択した行をマージ"):
+        if st.button("選択した行をマージ"):
             if selected_indices:
                 selected_rows = st.session_state["seg_df"].loc[selected_indices]
                 selected = selected_rows.sort_values("start")
@@ -359,35 +358,63 @@ def mojiokoshi(duration, offset):
         for i in range(len(seg_df)):
             speaker = str(seg_df.iloc[i]["speaker"])
             text = str(seg_df.iloc[i]["text"])
-            label = f"{i}: {speaker}｜{text[:20]}... の後"
+            label = f"{i}: {speaker}｜{text[:20]}"
             insert_options.append(i+1)
             insert_labels.append(label)
-        insert_position = st.sidebar.selectbox(
-            "新しい行を挿入する位置を選択してください",
+        insert_position = st.selectbox(
+            "分割対象の行を選んでください",
             options=insert_options,
             format_func=lambda i: insert_labels[insert_options.index(i)],
             index=len(insert_options)-1
         )
-        split_keyword = st.sidebar.text_input("分割キーワードを入力してください（直前の行のtext内で最初にマッチした箇所から分割、キーワード自体も新しい行に含めます）", key="split_keyword")
-        if st.sidebar.button("新しい行を挿入", key="insert_row_button"):
+        split_keyword = st.text_input("分割キーワードを入力してください（当該の行を、マッチした箇所から分割します。キーワード自体も新しい行に含めます）", key="split_keyword")
+        if st.button("新しい行を挿入", key="insert_row_button"):
             if insert_position > 0 and split_keyword:
-                prev_text = str(st.session_state["seg_df"].iloc[insert_position-1]["text"])
+                prev_row = st.session_state["seg_df"].iloc[insert_position-1]
+                prev_text = str(prev_row["text"])
+                prev_start = prev_row["start"]
+                prev_end = prev_row["end"]
                 idx = prev_text.find(split_keyword)
                 if idx != -1:
                     before_text = prev_text[:idx]
                     after_text = prev_text[idx:]  # キーワード自体も含める
+                    total_len = len(prev_text)
+                    len_before = len(before_text)
+                    len_after = len(after_text)
+                    # 線形補間でstart/endを概算
+                    if total_len > 0:
+                        before_end = prev_start + (prev_end - prev_start) * (len_before / total_len)
+                        after_start = before_end
+                    else:
+                        before_end = prev_start
+                        after_start = prev_end
+                    # 既存行を更新
                     st.session_state["seg_df"].iloc[insert_position-1, st.session_state["seg_df"].columns.get_loc("text")] = before_text
-                    new_row = {"speaker": "", "text": after_text, "start": 0, "end": 0}
+                    st.session_state["seg_df"].iloc[insert_position-1, st.session_state["seg_df"].columns.get_loc("end")] = before_end
+                    # 新しい行
+                    new_row = {"speaker": "", "text": after_text, "start": after_start, "end": prev_end}
+                    before = st.session_state["seg_df"].iloc[:insert_position]
+                    after = st.session_state["seg_df"].iloc[insert_position:]
+                    st.session_state["seg_df"] = pd.concat(
+                        [before, pd.DataFrame([new_row]), after],
+                        ignore_index=True
+                    )
                 else:
-                    new_row = {"speaker": "", "text": "", "start": 0, "end": 0}
+                    new_row = {"speaker": "", "text": "", "start": prev_end, "end": prev_end}
+                    before = st.session_state["seg_df"].iloc[:insert_position]
+                    after = st.session_state["seg_df"].iloc[insert_position:]
+                    st.session_state["seg_df"] = pd.concat(
+                        [before, pd.DataFrame([new_row]), after],
+                        ignore_index=True
+                    )
             else:
                 new_row = {"speaker": "", "text": "", "start": 0, "end": 0}
-            before = st.session_state["seg_df"].iloc[:insert_position]
-            after = st.session_state["seg_df"].iloc[insert_position:]
-            st.session_state["seg_df"] = pd.concat(
-                [before, pd.DataFrame([new_row]), after],
-                ignore_index=True
-            )
+                before = st.session_state["seg_df"].iloc[:insert_position]
+                after = st.session_state["seg_df"].iloc[insert_position:]
+                st.session_state["seg_df"] = pd.concat(
+                    [before, pd.DataFrame([new_row]), after],
+                    ignore_index=True
+                )
             # 追加後にセッションファイルへ保存
             try:
                 session_data = {
@@ -453,8 +480,8 @@ def main():
         """,
         unsafe_allow_html=True
     )
-    app_selection = st.sidebar.selectbox("文字起こしライブラリまたはアプリを選択", ["whisper","動画->MP3切り出し"])
-    duration = st.sidebar.number_input("1推論当たりの時間(sec)", min_value=0, max_value=1800,value=180, step=1)
+    app_selection = st.sidebar.selectbox("文字起こしライブラリまたはアプリを選択", ["whisper", "動画->MP3切り出し"])
+    duration = st.sidebar.number_input("1推論当たりの時間(sec)", min_value=0, max_value=1800, value=180, step=1)
     #offset = st.sidebar.number_input("推論単位の重複させる時間(sec)", min_value=0, max_value=300,value=10, step=1)
 
     if app_selection == "whisper":
