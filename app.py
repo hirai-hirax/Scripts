@@ -266,6 +266,63 @@ def mojiokoshi(duration, offset):
 
         )
         st.session_state["seg_df"].loc[:, ["speaker", "text", "start"]] = edited_df
+
+        # --- data_editorで編集後に即座に永続化 ---
+        try:
+            session_data = {
+                "results": st.session_state.get("results", []),
+                "full_transcript": st.session_state.get("full_transcript", ""),
+                "seg_df": st.session_state["seg_df"].to_dict(orient="records"),
+            }
+            with open("transcription/last_session.json", "w", encoding="utf-8") as f:
+                json.dump(session_data, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            st.warning(f"data_editor編集内容の保存に失敗しました: {e}")
+
+        # --- 任意の場所に新しい行を挿入 ---
+        seg_df = st.session_state["seg_df"]
+        insert_options = []
+        insert_labels = []
+
+        # 先頭
+        insert_options.append(0)
+        insert_labels.append("0: 先頭")
+        # 各行の前
+        for i in range(len(seg_df)):
+            speaker = str(seg_df.iloc[i]["speaker"])
+            text = str(seg_df.iloc[i]["text"])
+            label = f"{i+1}: {speaker}｜{text[:20]}... の前"
+            insert_options.append(i+1)
+            insert_labels.append(label)
+        insert_position = st.selectbox(
+            "新しい行を挿入する位置を選択してください",
+            options=insert_options,
+            format_func=lambda i: insert_labels[insert_options.index(i)],
+            index=len(insert_options)-1
+        )
+        if st.button("新しい行を挿入", key="insert_row_button"):
+            new_row = {"speaker": "", "text": "", "start": 0, "end": 0}
+            before = st.session_state["seg_df"].iloc[:insert_position]
+            after = st.session_state["seg_df"].iloc[insert_position:]
+            st.session_state["seg_df"] = pd.concat(
+                [before, pd.DataFrame([new_row]), after],
+                ignore_index=True
+            )
+            # 追加後にセッションファイルへ保存
+            try:
+                session_data = {
+                    "results": st.session_state.get("results", []),
+                    "full_transcript": st.session_state.get("full_transcript", ""),
+                    "seg_df": st.session_state["seg_df"].to_dict(orient="records"),
+                }
+                with open("transcription/last_session.json", "w", encoding="utf-8") as f:
+                    json.dump(session_data, f, ensure_ascii=False, indent=2)
+            except Exception as e:
+                st.warning(f"セッションの保存に失敗しました: {e}")
+            import time
+            st.session_state["seg_editor_key"] = str(time.time())
+            st.success(f"{insert_position}番目に新しい行を挿入しました。")
+            st.rerun()
         # 行選択用のmultiselect
         selected_indices = st.multiselect(
             "マージしたい行を選択してください（複数選択可）",
