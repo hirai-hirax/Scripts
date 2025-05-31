@@ -282,7 +282,7 @@ def mojiokoshi(duration, offset):
         # --- data_editorの下にマージ・分割ウィジェットを配置 ---
         # 行選択用のmultiselect
         selected_indices = st.multiselect(
-            "マージしたい行を選択してください（複数選択可）",
+            "複数行のテキストを1行に纏めることができます（マージ）。その場合、纏めたい行を選択してください（複数選択可）",
             options=list(st.session_state["seg_df"].index),
             format_func=lambda i: f"{st.session_state['seg_df'].loc[i, 'speaker']} | {st.session_state['seg_df'].loc[i, 'text'][:20]}...",
         )
@@ -353,7 +353,7 @@ def mojiokoshi(duration, offset):
 
         # 先頭
         insert_options.append(0)
-        insert_labels.append("0: 先頭")
+        insert_labels.append("先頭")
         # 各行の後
         for i in range(len(seg_df)):
             speaker = str(seg_df.iloc[i]["speaker"])
@@ -362,10 +362,10 @@ def mojiokoshi(duration, offset):
             insert_options.append(i+1)
             insert_labels.append(label)
         insert_position = st.selectbox(
-            "分割対象の行を選んでください",
+            "1行のテキストを、指定位置で分割して2行にすることができます。分割する場合は、その対象の行を選んでください",
             options=insert_options,
             format_func=lambda i: insert_labels[insert_options.index(i)],
-            index=len(insert_options)-1
+            index=1
         )
         split_keyword = st.text_input("分割キーワードを入力してください（当該の行を、マッチした箇所から分割します。キーワード自体も新しい行に含めます）", key="split_keyword")
         if st.button("新しい行を挿入", key="insert_row_button"):
@@ -432,24 +432,7 @@ def mojiokoshi(duration, offset):
             st.rerun()
         # 纏めたテーブルをダウンロード
         st.subheader("纏めたセグメントテーブルをダウンロード")
-        seg_json_bytes = st.session_state["seg_df"].to_json(orient="records", force_ascii=False).encode("utf-8")
-        st.download_button(
-            label="JSONでダウンロード",
-            data=seg_json_bytes,
-            file_name="merged_segments.json",
-            mime="application/json"
-        )
-        # speaker列を()で囲った形式でCSV出力
-        csv_df = st.session_state["seg_df"].copy()
-        csv_df["speaker"] = csv_df["speaker"].apply(lambda x: f"（{x}）" if pd.notnull(x) and str(x).strip() != "" else "")
-        csv_df = csv_df.loc[:, ["speaker", "text", "start", "end"]]
-        seg_csv_bytes = csv_df.to_csv(index=False).encode("shift_jis")
-        st.download_button(
-            label="CSVでダウンロード",
-            data=seg_csv_bytes,
-            file_name="merged_segments.csv",
-            mime="text/csv"
-        )
+
         # 全セグメントを1ファイルでダウンロード（話者名付き）
         all_text = ""
         for _, row in st.session_state["seg_df"].iterrows():
@@ -464,7 +447,25 @@ def mojiokoshi(duration, offset):
             file_name="all_speaker_text.txt",
             mime="text/plain"
         )
+        # speaker列を()で囲った形式でCSV出力
+        csv_df = st.session_state["seg_df"].copy()
+        csv_df["speaker"] = csv_df["speaker"].apply(lambda x: f"（{x}）" if pd.notnull(x) and str(x).strip() != "" else "")
+        csv_df = csv_df.loc[:, ["speaker", "text", "start", "end"]]
+        seg_csv_bytes = csv_df.to_csv(index=False).encode("shift_jis")
+        st.download_button(
+            label="CSVでダウンロード",
+            data=seg_csv_bytes,
+            file_name="merged_segments.csv",
+            mime="text/csv"
+        )
 
+        seg_json_bytes = st.session_state["seg_df"].to_json(orient="records", force_ascii=False).encode("utf-8")
+        st.download_button(
+            label="JSONでダウンロード",
+            data=seg_json_bytes,
+            file_name="merged_segments.json",
+            mime="application/json"
+        )
         st.subheader("文字起こし結果（全文）")
         st.text_area("結果", st.session_state["full_transcript"].strip(), height=400)
         st.download_button(
