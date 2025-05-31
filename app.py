@@ -459,7 +459,7 @@ def mojiokoshi(duration, offset):
                 all_text += f"{speaker}{text}\n"
         all_text = all_text.rstrip("\n")
         st.download_button(
-            label="TXTでダウンロード",
+            label="TXTでダウンロード(speaker付き)",
             data=all_text.encode("utf-8"),
             file_name="all_speaker_text.txt",
             mime="text/plain"
@@ -467,6 +467,12 @@ def mojiokoshi(duration, offset):
 
         st.subheader("文字起こし結果（全文）")
         st.text_area("結果", st.session_state["full_transcript"].strip(), height=400)
+        st.download_button(
+            label="TXTで全文ダウンロード",
+            data=st.session_state["full_transcript"].strip().encode("utf-8"),
+            file_name="plain_transcript.txt",
+            mime="text/plain"
+        )
 
 def main():
     # サイドバーの幅を広げるカスタムCSSを挿入
@@ -475,6 +481,14 @@ def main():
         <style>
         [data-testid="stSidebar"] {
             width: 500px;
+        }
+        /* Deployボタン非表示 */
+        [data-testid="stDeployButton"] {
+            display: none !important;
+        }
+        /* 3点リーダ（ツールバー）非表示 */
+        [data-testid="stHeader"] [data-testid="stToolbar"] {
+            display: none !important;
         }
         </style>
         """,
