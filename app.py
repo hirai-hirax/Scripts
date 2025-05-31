@@ -452,12 +452,6 @@ def mojiokoshi(duration, offset):
                     all_text_lines.append(f"{speaker}{text}")
         all_text = "\n".join(all_text_lines)
 
-        final_summary = generate_summary(
-            "gpt-4o-mini",
-            summarizing_prompt2,
-            all_text
-        )
-        all_text += f"\n\n---\n\n[要約]\n {final_summary}"
         st.download_button(
             label="TXTでダウンロード(speakerおよび要約付き)",
             data=all_text.encode("utf-8"),
@@ -475,8 +469,6 @@ def mojiokoshi(duration, offset):
             file_name="merged_segments.csv",
             mime="text/csv"
         )
-        st.write("全セグメントの要約:")
-        st.text_area("要約", final_summary, height=200)
         
         st.subheader("文字起こし結果（全文）")
         st.text_area("結果", st.session_state["full_transcript"].strip(), height=400)
