@@ -434,13 +434,20 @@ def mojiokoshi(duration, offset):
         st.subheader("纏めたセグメントテーブルをダウンロード")
 
         # 全セグメントを1ファイルでダウンロード（話者名付き）
-        all_text = ""
+        all_text_lines = []
         for _, row in st.session_state["seg_df"].iterrows():
-            speaker = f"（{row['speaker']}）" if str(row['speaker']).strip() != "" else "（N.A.）"
+            speaker = f"\n（{row['speaker']}）\n" if str(row['speaker']).strip() != "" else ""
             text = str(row['text']).strip()
             if text != "":
-                all_text += f"{speaker}{text}\n"
-        all_text = all_text.rstrip("\n")
+                if speaker == "":
+                    # 前の行に追記
+                    if all_text_lines:
+                        all_text_lines[-1] += text
+                    else:
+                        all_text_lines.append(text)
+                else:
+                    all_text_lines.append(f"{speaker}{text}")
+        all_text = "\n".join(all_text_lines)
         st.download_button(
             label="TXTでダウンロード(speaker付き)",
             data=all_text.encode("utf-8"),
