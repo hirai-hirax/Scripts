@@ -22,13 +22,16 @@ AZURE_OPENAI_ENDPOINT = os.environ.get("AZURE_OPENAI_ENDPOINT")
 AZURE_OPENAI_API_KEY = os.environ.get("AZURE_OPENAI_API_KEY")
 API_VERSION = "2023-09-01-preview"  # ご利用の API バージョンに合わせてください
 
-summary_prompt = """
-    ユーザーから、PDFから抽出されたテキストを渡されます。当該のテキストの内容を読んだ上で、150文字程度の要約を生成してください。
+summarizing_prompt1 = """
+    ユーザーからテキストを渡されます。当該のテキストの内容を読んだ上で、150文字程度の要約を生成してください。
 """
 
-def generate_keywords(model, FilePathOfPdf):
+summarizing_prompt2 = """
+    ユーザーから会議の文字起こしが渡されます。当該の文字起こしの内容を読んだ上で、150文字程度の要約を生成してください。
+"""
+
+def generate_summary(model, prompt, text):
     # クライアント初期化
-    text = get_text_from_pdf(FilePathOfPdf)
     client = AzureOpenAI(
         azure_endpoint=AZURE_OPENAI_ENDPOINT,
         api_key=AZURE_OPENAI_API_KEY,
@@ -38,10 +41,11 @@ def generate_keywords(model, FilePathOfPdf):
     response = client.chat.completions.create(
         model=model,
         messages=[
-            {"role": "system", "content": summary_prompt},
+            {"role": "system", "content": prompt},
             {"role": "user", "content": text},
         ],
     )
+    print(f"Response: {response}")
     return response.choices[0].message.content
 
 def convert_to_mp3_from_mp4(file: BytesIO):
@@ -68,11 +72,6 @@ def get_text_from_pdf(file: BytesIO):
     for page in pdf_document:
         text += page.get_text()
     pdf_document.close()
-    return text
-
-def get_text_from_txt(file: BytesIO):
-    # テキストファイルを読み込む
-    text = file.read().decode("utf-8")
     return text
 
 def mojiokoshi(duration, offset):
@@ -135,7 +134,10 @@ def mojiokoshi(duration, offset):
             try:
                 pdf_summary = ""
                 if pdf_file is not None:
-                    pdf_summary = generate_keywords("gpt-4o-mini", pdf_file)
+                    pdf_text = get_text_from_pdf(pdf_file)
+                    pdf_summary = generate_summary("gpt-4o-mini",
+                                                    summarizing_prompt1,
+                                                    pdf_text)
                     st.subheader("PDF要約")
                     st.text_area("要約", pdf_summary, height=200)
                 log_messages = []
@@ -281,6 +283,7 @@ def mojiokoshi(duration, offset):
 
         # --- data_editorの下にマージ・分割ウィジェットを配置 ---
         # 行選択用のmultiselect
+        st.subheader("文字起こし結果の編集")
         selected_indices = st.multiselect(
             "複数行のテキストを1行に纏めることができます（マージ）。その場合、纏めたい行を選択してください（複数選択可）",
             options=list(st.session_state["seg_df"].index),
@@ -436,7 +439,7 @@ def mojiokoshi(duration, offset):
         # 全セグメントを1ファイルでダウンロード（話者名付き）
         all_text_lines = []
         for _, row in st.session_state["seg_df"].iterrows():
-            speaker = f"\n（{row['speaker']}）\n" if str(row['speaker']).strip() != "" else ""
+            speaker = f"（{row['speaker']}）" if str(row['speaker']).strip() != "" else ""
             text = str(row['text']).strip()
             if text != "":
                 if speaker == "":
@@ -448,8 +451,15 @@ def mojiokoshi(duration, offset):
                 else:
                     all_text_lines.append(f"{speaker}{text}")
         all_text = "\n".join(all_text_lines)
+
+        final_summary = generate_summary(
+            "gpt-4o-mini",
+            summarizing_prompt2,
+            all_text
+        )
+        all_text += f"\n\n---\n\n[要約]\n {final_summary}"
         st.download_button(
-            label="TXTでダウンロード(speaker付き)",
+            label="TXTでダウンロード(speakerおよび要約付き)",
             data=all_text.encode("utf-8"),
             file_name="all_speaker_text.txt",
             mime="text/plain"
@@ -460,19 +470,14 @@ def mojiokoshi(duration, offset):
         csv_df = csv_df.loc[:, ["speaker", "text", "start", "end"]]
         seg_csv_bytes = csv_df.to_csv(index=False).encode("shift_jis")
         st.download_button(
-            label="CSVでダウンロード",
+            label="CSVでダウンロード(speaker付き)",
             data=seg_csv_bytes,
             file_name="merged_segments.csv",
             mime="text/csv"
         )
-
-        seg_json_bytes = st.session_state["seg_df"].to_json(orient="records", force_ascii=False).encode("utf-8")
-        st.download_button(
-            label="JSONでダウンロード",
-            data=seg_json_bytes,
-            file_name="merged_segments.json",
-            mime="application/json"
-        )
+        st.write("全セグメントの要約:")
+        st.text_area("要約", final_summary, height=200)
+        
         st.subheader("文字起こし結果（全文）")
         st.text_area("結果", st.session_state["full_transcript"].strip(), height=400)
         st.download_button(
@@ -488,7 +493,7 @@ def main():
         """
         <style>
         [data-testid="stSidebar"] {
-            width: 500px;
+            width: 200px;
         }
         /* Deployボタン非表示 */
         [data-testid="stDeployButton"] {
@@ -505,7 +510,7 @@ def main():
     app_selection = st.sidebar.selectbox("文字起こしライブラリまたはアプリを選択", ["whisper"])
     duration = st.sidebar.number_input("1推論当たりの時間(sec)", min_value=0, max_value=1800, value=180, step=1)
     #offset = st.sidebar.number_input("推論単位の重複させる時間(sec)", min_value=0, max_value=300,value=10, step=1)
-
+    notice = st.sidebar.info("作業が終わったらセッションをリセットしてください。リセットしないとPC内部にセッション情報が残るとともに、起動時に要約処理が行われ、API利用料が発生します。")
     if app_selection == "whisper":
         mojiokoshi(duration, offset=0)
 
