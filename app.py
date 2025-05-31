@@ -281,7 +281,7 @@ def mojiokoshi(duration, offset):
         st.session_state["seg_df"].loc[:, ["speaker", "text", "start"]] = edited_df
 
         # 行選択用のmultiselect
-        selected_indices = st.multiselect(
+        selected_indices = st.sidebar.multiselect(
             "マージしたい行を選択してください（複数選択可）",
             options=list(st.session_state["seg_df"].index),
             format_func=lambda i: f"{st.session_state['seg_df'].loc[i, 'speaker']} | {st.session_state['seg_df'].loc[i, 'text'][:20]}...",
@@ -299,7 +299,7 @@ def mojiokoshi(duration, offset):
         st.session_state["df"] = df_from_seg
 
         st.subheader("選択した行をマージ")
-        if st.button("選択した行をマージ"):
+        if st.sidebar.button("選択した行をマージ"):
             if selected_indices:
                 selected_rows = st.session_state["seg_df"].loc[selected_indices]
                 selected = selected_rows.sort_values("start")
@@ -362,14 +362,14 @@ def mojiokoshi(duration, offset):
             label = f"{i}: {speaker}｜{text[:20]}... の後"
             insert_options.append(i+1)
             insert_labels.append(label)
-        insert_position = st.selectbox(
+        insert_position = st.sidebar.selectbox(
             "新しい行を挿入する位置を選択してください",
             options=insert_options,
             format_func=lambda i: insert_labels[insert_options.index(i)],
             index=len(insert_options)-1
         )
-        split_keyword = st.text_input("分割キーワードを入力してください（直前の行のtext内で最初にマッチした箇所から分割、キーワード自体も新しい行に含めます）", key="split_keyword")
-        if st.button("新しい行を挿入", key="insert_row_button"):
+        split_keyword = st.sidebar.text_input("分割キーワードを入力してください（直前の行のtext内で最初にマッチした箇所から分割、キーワード自体も新しい行に含めます）", key="split_keyword")
+        if st.sidebar.button("新しい行を挿入", key="insert_row_button"):
             if insert_position > 0 and split_keyword:
                 prev_text = str(st.session_state["seg_df"].iloc[insert_position-1]["text"])
                 idx = prev_text.find(split_keyword)
@@ -442,26 +442,23 @@ def mojiokoshi(duration, offset):
         st.text_area("結果", st.session_state["full_transcript"].strip(), height=400)
 
 def main():
-    # 横幅調整スライダー
-    width = st.sidebar.slider("アプリの横幅(px)", min_value=600, max_value=2000, value=1200, step=10)
+    # サイドバーの幅を広げるカスタムCSSを挿入
     st.markdown(
-        f"""
+        """
         <style>
-        div[data-testid="stAppViewContainer"] .main .block-container {{
-            max-width: {width}px;
-            width: 100%;
-        }}
+        [data-testid="stSidebar"] {
+            width: 500px;
+        }
         </style>
         """,
-        unsafe_allow_html=True,
+        unsafe_allow_html=True
     )
-
     app_selection = st.sidebar.selectbox("文字起こしライブラリまたはアプリを選択", ["whisper","動画->MP3切り出し"])
     duration = st.sidebar.number_input("1推論当たりの時間(sec)", min_value=0, max_value=1800,value=180, step=1)
-    offset = st.sidebar.number_input("推論単位の重複させる時間(sec)", min_value=0, max_value=300,value=10, step=1)
+    #offset = st.sidebar.number_input("推論単位の重複させる時間(sec)", min_value=0, max_value=300,value=10, step=1)
 
     if app_selection == "whisper":
-        mojiokoshi(duration, offset)
+        mojiokoshi(duration, offset=0)
 
 if __name__ == "__main__":
     main()
