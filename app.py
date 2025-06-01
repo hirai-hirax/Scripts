@@ -74,7 +74,7 @@ def get_text_from_pdf(file: BytesIO):
     pdf_document.close()
     return text
 
-def mojiokoshi(duration, offset):
+def mojiokoshi(duration, mom_style):
     model = "whisper"
     client = AzureOpenAI(
         azure_endpoint=AZURE_OPENAI_ENDPOINT,
@@ -439,7 +439,12 @@ def mojiokoshi(duration, offset):
         # 全セグメントを1ファイルでダウンロード（話者名付き）
         all_text_lines = []
         for _, row in st.session_state["seg_df"].iterrows():
-            speaker = f"（{row['speaker']}）" if str(row['speaker']).strip() != "" else ""
+            if mom_style == "(話者)":
+                speaker = f"（{row['speaker']}）" if str(row['speaker']).strip() != "" else ""
+            elif mom_style == "(話者)+改行":
+                speaker = f"\n（{row['speaker']}）\n" if str(row['speaker']).strip() != "" else ""
+            elif mom_style == "話者＞":
+                speaker = f"{row['speaker']}＞" if str(row['speaker']).strip() != "" else ""
             text = str(row['text']).strip()
             if text != "":
                 if speaker == "":
@@ -453,7 +458,7 @@ def mojiokoshi(duration, offset):
         all_text = "\n".join(all_text_lines)
 
         st.download_button(
-            label="TXTでダウンロード(speakerおよび要約付き)",
+            label="TXTでダウンロード(speaker付き)",
             data=all_text.encode("utf-8"),
             file_name="all_speaker_text.txt",
             mime="text/plain"
@@ -471,13 +476,8 @@ def mojiokoshi(duration, offset):
         )
         
         st.subheader("文字起こし結果（全文）")
-        st.text_area("結果", st.session_state["full_transcript"].strip(), height=400)
-        st.download_button(
-            label="TXTで全文ダウンロード",
-            data=st.session_state["full_transcript"].strip().encode("utf-8"),
-            file_name="plain_transcript.txt",
-            mime="text/plain"
-        )
+        st.text_area("結果", all_text, height=400)
+
 
 def main():
     # サイドバーの幅を広げるカスタムCSSを挿入
@@ -501,10 +501,11 @@ def main():
     )
     app_selection = st.sidebar.selectbox("文字起こしライブラリまたはアプリを選択", ["whisper"])
     duration = st.sidebar.number_input("1推論当たりの時間(sec)", min_value=0, max_value=1800, value=180, step=1)
+    mom_style = st.sidebar.selectbox("話者の表記方法", ["(話者)", "(話者)+改行","話者＞"], index=0)
     #offset = st.sidebar.number_input("推論単位の重複させる時間(sec)", min_value=0, max_value=300,value=10, step=1)
-    notice = st.sidebar.info("作業が終わったらセッションをリセットしてください。リセットしないとPC内部にセッション情報が残るとともに、起動時に要約処理が行われ、API利用料が発生します。")
+    notice = st.sidebar.info("作業が終わったらセッションをリセットしてください。リセットしないとPC内部にセッション情報が残ります。")
     if app_selection == "whisper":
-        mojiokoshi(duration, offset=0)
+        mojiokoshi(duration, mom_style)
 
 if __name__ == "__main__":
     main()
