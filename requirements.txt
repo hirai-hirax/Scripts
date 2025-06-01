@@ -10,3 +10,5 @@ python-pptx
 openpyxl
 markitdown
 extract_msg
+resemblyzer
+pydub

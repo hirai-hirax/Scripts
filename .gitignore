@@ -69,3 +69,5 @@ output.txt
 search_temperature_top_p.py
 output.txt
 transcription/last_session.json
+extracted_segments/*
+embed/*
