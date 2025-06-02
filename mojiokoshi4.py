@@ -259,14 +259,16 @@ def identify_speakers_in_dataframe(audio_file, df: pd.DataFrame, uploaded_embedd
     finally:
         os.remove(temp_audio_file_path)
 
-def mojiokoshi(duration):
+def mojiokoshi():
     st.title("オーディオファイルの文字起こし")
-    st.write("会議資料とオーディオファイルをアップロードしてください。")  
+    st.write("会議資料とオーディオファイルをアップロードしてください。")
 
     st.sidebar.write("""
     このアプリは、アップロードされた音声ファイルを文字起こしし、必要に応じて話者識別を行います。
     また、文字起こし結果を整形して議事録形式に変換する機能も含まれています。
     """)
+
+    duration = st.number_input("1推論当たりの時間(sec)", min_value=0, max_value=1800, value=600, step=1)
 
     # PDFファイルアップロード
     pdf_file = st.file_uploader("要約に使うPDFファイルを選択", type=["pdf"])
@@ -505,7 +507,13 @@ def speaker_identification_in_mojiokoshi():
     uploaded_audio_file = st.file_uploader("音声ファイルをアップロード", type=["wav", "mp3", "flac", "ogg", "mp4"], key="identify_audio_uploader")
     uploaded_embedding_files = st.file_uploader("話者埋め込みファイルをアップロード（複数選択可）", type=["npy"], accept_multiple_files=True, key="identify_embeddings_uploader")
     uploaded_excel_file = st.file_uploader("Excelファイルをアップロード（'start'と'end'列が秒単位であること）", type=["xlsx"], key="identify_excel_uploader")
-
+    # Add a selectbox for format options
+    format_option = st.selectbox(
+                    "話者表示形式を選択してください",
+                    ["（話者）テキスト", "（話者）テキスト/前後改行あり", "話者＞テキスト", "話者：テキスト"],
+                    index=0, # Default to the first option
+                    key="speaker_identification_transcript_format_selector"
+                )
     similarity_threshold = st.number_input(
         "話者識別の類似度閾値",
         min_value=0.0,
@@ -562,7 +570,18 @@ def speaker_identification_in_mojiokoshi():
                             # Speaker changed, finalize the previous block
                             if current_text_block:
                                 if current_speaker is not None:
-                                    transcript_lines.append(f"({current_speaker}) {' '.join(current_text_block)}")
+                                    # Use the selected format
+                                    if format_option == "（話者）テキスト":
+                                        transcript_lines.append(f"（{current_speaker}）{' '.join(current_text_block)}")
+                                    elif format_option == "（話者）テキスト/前後改行あり":
+                                        transcript_lines.append(f"\n（{current_speaker}）\n{' '.join(current_text_block)}")
+                                    elif format_option == "話者＞テキスト":
+                                        transcript_lines.append(f"{current_speaker}＞{' '.join(current_text_block)}")
+                                    elif format_option == "話者：テキスト":
+                                        transcript_lines.append(f"{current_speaker}：{' '.join(current_text_block)}")
+                                    else:
+                                        # Fallback to default format
+                                        transcript_lines.append(f"（{current_speaker}）{' '.join(current_text_block)}")
                                 else:
                                     transcript_lines.append(' '.join(current_text_block)) # Should not happen based on logic, but as a fallback
                             
@@ -576,7 +595,18 @@ def speaker_identification_in_mojiokoshi():
                     # Finalize the last block after the loop
                     if current_text_block:
                         if current_speaker is not None:
-                            transcript_lines.append(f"({current_speaker}) {' '.join(current_text_block)}")
+                            # Use the selected format
+                            if format_option == "（話者）テキスト":
+                                transcript_lines.append(f"（{current_speaker}）{' '.join(current_text_block)}")
+                            elif format_option == "（話者）テキスト/前後改行あり":
+                                transcript_lines.append(f"\n（{current_speaker}）\n{' '.join(current_text_block)}")
+                            elif format_option == "話者＞テキスト":
+                                transcript_lines.append(f"{current_speaker}＞{' '.join(current_text_block)}")
+                            elif format_option == "話者：テキスト":
+                                transcript_lines.append(f"{current_speaker}：{' '.join(current_text_block)}")
+                            else:
+                                # Fallback to default format
+                                transcript_lines.append(f"（{current_speaker}）{' '.join(current_text_block)}")
                         else:
                             transcript_lines.append(' '.join(current_text_block))
 
@@ -635,7 +665,18 @@ def speaker_identification_in_mojiokoshi():
                         # Speaker changed, finalize the previous block
                         if current_text_block:
                             if current_speaker is not None:
-                                transcript_lines.append(f"({current_speaker}) {' '.join(current_text_block)}")
+                                # Use the selected format
+                                if format_option == "（話者）テキスト":
+                                    transcript_lines.append(f"（{current_speaker}）{' '.join(current_text_block)}")
+                                elif format_option == "（話者）テキスト/前後改行あり":
+                                    transcript_lines.append(f"\n（{current_speaker}）\n{' '.join(current_text_block)}")
+                                elif format_option == "話者＞テキスト":
+                                    transcript_lines.append(f"{current_speaker}＞{' '.join(current_text_block)}")
+                                elif format_option == "話者：テキスト":
+                                    transcript_lines.append(f"{current_speaker}：{' '.join(current_text_block)}")
+                                else:
+                                    # Fallback to default format
+                                    transcript_lines.append(f"（{current_speaker}）{' '.join(current_text_block)}")
                             else:
                                 transcript_lines.append(' '.join(current_text_block)) # Should not happen based on logic, but as a fallback
                         
@@ -649,7 +690,18 @@ def speaker_identification_in_mojiokoshi():
                 # Finalize the last block after the loop
                 if current_text_block:
                     if current_speaker is not None:
-                        transcript_lines.append(f"({current_speaker}) {' '.join(current_text_block)}")
+                        # Use the selected format
+                        if format_option == "（話者）テキスト":
+                            transcript_lines.append(f"（{current_speaker}）{' '.join(current_text_block)}")
+                        elif format_option == "（話者）テキスト/前後改行あり":
+                            transcript_lines.append(f"\n（{current_speaker}）\n{' '.join(current_text_block)}")
+                        elif format_option == "話者＞テキスト":
+                            transcript_lines.append(f"{current_speaker}＞{' '.join(current_text_block)}")
+                        elif format_option == "話者：テキスト":
+                            transcript_lines.append(f"{current_speaker}：{' '.join(current_text_block)}")
+                        else:
+                            # Fallback to default format
+                            transcript_lines.append(f"（{current_speaker}）{' '.join(current_text_block)}")
                     else:
                         transcript_lines.append(' '.join(current_text_block))
 
@@ -745,9 +797,8 @@ def main():
         ["(1)文字起こしExcelの生成", "(2)文字起こしExcelの整え", "(3)発言録テキスト生成","(a)話者埋め込み作成","(b)文字起こしに話者情報を追加",]
     )
 
-    duration = st.sidebar.number_input("1推論当たりの時間(sec)", min_value=0, max_value=1800, value=600, step=1)
     if mode == "(1)文字起こしExcelの生成":
-        mojiokoshi(duration)
+        mojiokoshi()
     elif mode == "(2)文字起こしExcelの整え":
         gijiroku_seikei()
     elif mode == "(3)発言録テキスト生成":
