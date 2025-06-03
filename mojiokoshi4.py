@@ -5,12 +5,17 @@ import tempfile
 from io import BytesIO
 from pydub import AudioSegment
 import fitz
+import torch
 import pandas as pd
 from dotenv import load_dotenv
 from resemblyzer import VoiceEncoder, preprocess_wav
 import numpy as np
 from pathlib import Path
 import zipfile
+import subprocess
+from datetime import timedelta
+
+torch.classes.__path__ = []
 
 # .envファイルから環境変数を読み込む
 load_dotenv()
@@ -84,7 +89,7 @@ def transcribe_audio_to_dataframe(uploaded_file: BytesIO, duration: int, pdf_fil
             end_ms = min((i + 1) * chunk_duration_ms, total_duration_ms)
             chunk = audio[start_ms:end_ms]
 
-            # st.info(f"チャンク {i+1}/{num_chunks} を処理中...（{start_ms//1000}秒～{end_ms//1000}秒）") # Streamlit UI removed
+            st.info(f"チャンク {i+1}/{num_chunks} を処理中...（{start_ms//1000}秒～{end_ms//1000}秒）")
 
             # Create a unique temporary file path within the temporary directory
             temp_audio_path = os.path.join(tmpdir, f"chunk_{i+1}.wav")
@@ -114,8 +119,7 @@ def transcribe_audio_to_dataframe(uploaded_file: BytesIO, duration: int, pdf_fil
                     all_segments.append(seg)
 
             # The temporary file will be automatically removed when the TemporaryDirectory context exits
-
-        # st.success(f"チャンク {i+1}/{num_chunks} の文字起こし完了。") # Streamlit UI removed
+        st.info(f"チャンク {num_chunks}/{num_chunks} の文字起こし完了。")
 
     if all_segments:
         seg_df = pd.DataFrame(all_segments)
@@ -223,20 +227,6 @@ def identify_speakers_in_dataframe(audio_file, df: pd.DataFrame, uploaded_embedd
                     df.at[index, 'speaker'] = identified_speaker
                     status_text.text(f"Processed segment {index + 1}/{len(df)}: Identified as {identified_speaker}")
 
-                    # --- Add code here to save the embedding ---
-                    # Get the first 10 characters of the text and sanitize
-                    text_snippet_10 = str(row['text'])[:10].replace('/', '_').replace('\\', '_').replace(':', '_').replace('*', '_').replace('?', '_').replace('"', '_').replace('<', '_').replace('>', '_').replace('|', '_')
-                    # Construct the filename
-                    output_filename = f"{identified_speaker}_{text_snippet_10}.npy"
-                    # Define the full path
-                    output_filepath = os.path.join("embed", output_filename)
-                    # Save the embedding
-                    try:
-                        np.save(output_filepath, segment_embedding)
-                        print(f"Saved embedding for {identified_speaker} as {output_filepath}")
-                    except Exception as save_e:
-                        st.error(f"Error saving embedding file {output_filepath}: {save_e}")
-                    # --- End of added code ---
 
                 else:
                     df.at[index, 'speaker'] = ""
@@ -353,7 +343,7 @@ def gijiroku_seikei():
 
                         # 1. 話者列の前処理: 空欄を前後の話者で埋める
                         df_processed['speaker_filled'] = df_processed['speaker'].replace('', pd.NA)
-                        df_processed['speaker_filled'] = df_processed['speaker_filled'].bfill().ffill()
+                        df_processed['speaker_filled'] = df_processed['speaker_filled'].ffill()
 
                         # 2. グループ化キーの作成: 話者が変わるごとに新しいグループIDを割り当てる
                         #    NaNが埋められた後のspeaker_filled列で比較
@@ -443,9 +433,15 @@ def generate_embeddings():
                                     wav = preprocess_wav(temp_segment_file_path)
                                     segment_embedding = encoder.embed_utterance(wav)
 
-                                    # Determine output filename based on index and text column
-                                    text_snippet = str(row['text'])[:20].replace('/', '_').replace('\\', '_') # Get first 20 chars and sanitize
-                                    output_filename = f"{index}_{text_snippet}.npy"
+                                    # Determine output filename based on speaker and text
+                                    speaker_name = str(row.get('speaker', '')).strip() # Get speaker, handle missing/NaN, strip whitespace
+                                    text_snippet = str(row['text'])[:50].replace('/', '_').replace('\\', '_').replace('|', '_').replace('?', '_') # Get first 50 chars, sanitize, replace '|' and '?'
+
+                                    if speaker_name:
+                                        output_filename = f"{speaker_name}‗{text_snippet}.npy"
+                                    else:
+                                        # Fallback if speaker is not available
+                                        output_filename = f"{index}_{text_snippet}.npy"
 
                                     np.save(output_filename, segment_embedding)
                                     generated_embeddings.append((output_filename, segment_embedding))
@@ -790,11 +786,171 @@ def generate_transcript_text():
             st.error(f"ファイルの処理中にエラーが発生しました: {e}")
             st.info("アップロードされたExcelファイルが正しい形式であり、必要な列 ('speaker', 'text') が含まれているか確認してください。")
 
+
+def format_time(seconds):
+    """Formats seconds into HH:MM:SS."""
+    td = timedelta(seconds=seconds)
+    hours, remainder = divmod(td.seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return f"{hours:02}:{minutes:02}:{seconds:02}"
+
+def parse_time_to_seconds(time_str):
+    """Converts HH:MM:SS or seconds string to total seconds."""
+    if ':' in time_str:
+        parts = list(map(int, time_str.split(':')))
+        if len(parts) == 3:
+            return parts[0] * 3600 + parts[1] * 60 + parts[2]
+        elif len(parts) == 2:
+            return parts[0] * 60 + parts[1]
+        else:
+            raise ValueError("Invalid time format. Use HH:MM:SS or MM:SS.")
+    else:
+        return int(time_str)
+
+def video_to_audio_cutter_app():
+    st.title("動画から音声を切り出しMP3で保存")
+    st.write("動画ファイルをアップロードし、切り出したい開始時間と終了時間を指定してください。複数の区間を切り出すことができます。")
+
+    uploaded_video = st.file_uploader("動画ファイルを選択", type=["wav","mp3","mp4", "mov", "avi", "mkv", "webm"])
+
+    if uploaded_video is not None:
+        st.video(uploaded_video)
+
+        st.subheader("切り出し区間の設定")
+        # Use st.data_editor for multiple time range inputs
+        # Default for the first row includes segment_1
+        default_data = pd.DataFrame([
+            {"開始時間": "00:00:00", "終了時間": "00:00:30", "出力ファイル名": f"{os.path.splitext(uploaded_video.name)[0]}_"}
+        ])
+        edited_df = st.data_editor(
+            default_data,
+            num_rows="dynamic",
+            use_container_width=True,
+            column_config={
+                "開始時間": st.column_config.TextColumn(
+                    "開始時間 (HH:MM:SS or seconds)",
+                    help="切り出し開始時間 (例: 00:00:10 または 10)",
+                    default="00:00:00"
+                ),
+                "終了時間": st.column_config.TextColumn(
+                    "終了時間 (HH:MM:SS or seconds)",
+                    help="切り出し終了時間 (例: 00:00:30 または 30)",
+                    default="00:00:30"
+                ),
+                "出力ファイル名": st.column_config.TextColumn(
+                    "出力ファイル名 (.mp3)",
+                    help="この区間のMP3出力ファイル名を入力してください (例: my_audio_segment.mp3)。'AUTO_GENERATE'と入力するか空欄の場合、自動で連番が振られます。",
+                    default=f"{os.path.splitext(uploaded_video.name)[0]}_" # Explicit placeholder for new rows
+                )
+            }
+        )
+
+        if st.button("音声を切り出してMP3で保存"):
+            if edited_df.empty:
+                st.warning("切り出し区間が設定されていません。")
+                return
+
+            temp_video_path = ""
+            output_audio_paths = [] # List to store paths of all generated MP3s
+            zip_buffer = BytesIO()
+
+            try:
+                # Save uploaded video to a temporary file
+                with tempfile.NamedTemporaryFile(delete=False, suffix=f".{uploaded_video.name.split('.')[-1]}") as temp_video_file:
+                    temp_video_file.write(uploaded_video.read())
+                    temp_video_path = temp_video_file.name
+
+                with st.spinner("音声の切り出しとMP3への変換中..."):
+                    for index, row in edited_df.iterrows():
+                        start_time_str = str(row["開始時間"])
+                        end_time_str = str(row["終了時間"])
+                        output_filename_raw = str(row["出力ファイル名"]).strip()
+
+                        try:
+                            start_seconds = parse_time_to_seconds(start_time_str)
+                            end_seconds = parse_time_to_seconds(end_time_str)
+
+                            if start_seconds >= end_seconds:
+                                st.error(f"区間 {index+1}: 開始時間 ({start_time_str}) は終了時間 ({end_time_str}) より前に設定してください。この区間はスキップされます。")
+                                continue
+                            
+                            # If output filename is empty or matches the explicit placeholder, generate one with index
+                            base_name_from_video = os.path.splitext(uploaded_video.name)[0]
+                            
+                            if not output_filename_raw or output_filename_raw.upper() == "AUTO_GENERATE":
+                                output_filename_to_use = f"{base_name_from_video}_segment_{index+1}.mp3"
+                            else:
+                                output_filename_to_use = output_filename_raw
+
+                            # Ensure the output filename ends with .mp3
+                            if not output_filename_to_use.lower().endswith(".mp3"):
+                                output_filename_to_use += ".mp3"
+
+                            output_audio_path = os.path.join(tempfile.gettempdir(), output_filename_to_use)
+
+                            command = [
+                                "ffmpeg",
+                                "-i", temp_video_path,
+                                "-ss", format_time(start_seconds),
+                                "-to", format_time(end_seconds),
+                                "-vn",  # No video
+                                "-ab", "192k", # Audio bitrate
+                                "-map_metadata", "-1", # Remove metadata
+                                "-y", # Overwrite output files without asking
+                                output_audio_path
+                            ]
+
+                            st.info(f"区間 {index+1} FFmpegコマンドを実行中: {' '.join(command)}")
+                            
+                            process = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", check=True)
+                            st.success(f"区間 {index+1} の音声切り出しとMP3への変換が完了しました！")
+                            st.code(process.stdout)
+                            st.code(process.stderr)
+                            output_audio_paths.append(output_audio_path)
+
+                        except subprocess.CalledProcessError as e:
+                            st.error(f"区間 {index+1} FFmpegの実行中にエラーが発生しました: {e}")
+                            st.code(e.stdout)
+                            st.code(e.stderr)
+                            st.warning("FFmpegがシステムにインストールされ、PATHが通っていることを確認してください。")
+                        except ValueError as e:
+                            st.error(f"区間 {index+1} 時間形式エラー: {e}")
+                        except Exception as e:
+                            st.error(f"区間 {index+1} 処理中にエラーが発生しました: {e}")
+
+                if output_audio_paths:
+                    st.subheader("生成されたMP3ファイル")
+                    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+                        for audio_path in output_audio_paths:
+                            if os.path.exists(audio_path):
+                                zf.write(audio_path, os.path.basename(audio_path))
+                                st.write(f"- {os.path.basename(audio_path)}")
+                    zip_buffer.seek(0)
+
+                    st.download_button(
+                        label="全てのMP3ファイルをまとめてダウンロード (ZIP)",
+                        data=zip_buffer,
+                        file_name=f"{os.path.splitext(uploaded_video.name)[0]}_cut_audios.zip",
+                        mime="application/zip"
+                    )
+                else:
+                    st.warning("切り出されたMP3ファイルはありませんでした。")
+
+            except Exception as e:
+                st.error(f"動画ファイルの処理中にエラーが発生しました: {e}")
+            finally:
+                # Clean up temporary files
+                if os.path.exists(temp_video_path):
+                    os.remove(temp_video_path)
+                for audio_path in output_audio_paths:
+                    if os.path.exists(audio_path):
+                        os.remove(audio_path)
+
 def main():
     st.set_page_config(layout="wide")
     mode = st.sidebar.selectbox(
         "アプリケーションを選択",
-        ["(1)文字起こしExcelの生成", "(2)文字起こしExcelの整え", "(3)発言録テキスト生成","(a)話者埋め込み作成","(b)文字起こしに話者情報を追加",]
+        ["(1)文字起こしExcelの生成", "(2)文字起こしExcelの整え","(2')文字起こしに話者情報を追加", "(3)発言録テキスト生成","(a)話者埋め込み作成", "(b)動画から音声を切り出しMP3で保存"]
     )
 
     if mode == "(1)文字起こしExcelの生成":
@@ -805,8 +961,10 @@ def main():
         generate_transcript_text()
     elif mode == "(a)話者埋め込み作成":
         generate_embeddings()
-    elif mode == "(b)文字起こしに話者情報を追加":
+    elif mode == "(2')文字起こしに話者情報を追加":
         speaker_identification_in_mojiokoshi()
+    elif mode == "(b)動画から音声を切り出しMP3で保存":
+        video_to_audio_cutter_app()
 
 if __name__ == "__main__":
     main()
