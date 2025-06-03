@@ -25,6 +25,10 @@ AZURE_OPENAI_ENDPOINT = os.environ.get("AZURE_OPENAI_ENDPOINT")
 AZURE_OPENAI_API_KEY = os.environ.get("AZURE_OPENAI_API_KEY")
 API_VERSION = "2023-09-01-preview"  # ご利用の API バージョンに合わせてください
 
+initial_prompt_whisper = """
+"こんにちは。\n\nはい、こんにちは。\n\nお元気ですか？\n\nはい、元気です。\n\nそれは何よりです。では早速始めましょう。\n\nはい、よろしくお願いいたします。"
+"""
+
 summarizing_prompt1 = """
     ユーザーからテキストを渡されます。当該のテキストの内容を読んだ上で、150文字程度の要約を生成してください。
 """
@@ -101,7 +105,7 @@ def transcribe_audio_to_dataframe(uploaded_file: BytesIO, duration: int, pdf_fil
                 file_tuple = (f"chunk_{i+1}.wav", audio_file_for_api, "audio/wav")
 
                 # initial_promptにPDF要約を使う
-                prompt_text = pdf_summary if pdf_summary else "こんにちは。\n\nはい、こんにちは。\n\nお元気ですか？\n\nはい、元気です。\n\nそれは何よりです。では早速始めましょう。\n\nはい、よろしくお願いいたします。"
+                prompt_text = pdf_summary if pdf_summary else initial_prompt_whisper
                 transcript = client.audio.transcriptions.create(
                     model=model,
                     file=file_tuple,
