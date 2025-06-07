@@ -1004,24 +1004,6 @@ def transcribe_and_identify_speakers():
                     identified_df = identify_speakers_in_dataframe(uploaded_file, seg_df.copy(), uploaded_embedding_files, similarity_threshold)
                     st.session_state.identified_df_combined = identified_df # Store in session state
 
-                    # --- 整形前のDataFrameをExcelダウンロードする機能を追加 ---
-                    st.subheader("整形前の文字起こしと話者識別結果")
-                    st.dataframe(st.session_state.identified_df_combined)
-
-                    raw_excel_buffer = BytesIO()
-                    st.session_state.identified_df_combined.to_excel(raw_excel_buffer, index=False)
-                    raw_excel_buffer.seek(0)
-                    
-                    base_name_raw = os.path.splitext(uploaded_file.name)[0] if uploaded_file.name else "raw_transcription_result"
-                    st.download_button(
-                        label="整形前の結果をExcelとしてダウンロード",
-                        data=raw_excel_buffer,
-                        file_name=f"{base_name_raw}_整形前結果.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        key="download_raw_combined_excel"
-                    )
-                    # --- ここまで追加 ---
-
                     # --- 議事録形式への整形ロジック ---
                     st.info("議事録形式に整形中...")
                     df_processed = st.session_state.identified_df_combined.copy()
@@ -1046,6 +1028,7 @@ def transcribe_and_identify_speakers():
                     st.session_state.format_option_combined = format_option # Store format option
 
                     st.success("文字起こしと話者識別、議事録整形が完了しました！")
+
                 else:
                     st.info("文字起こし結果がありませんでした。")
 
@@ -1062,6 +1045,21 @@ def transcribe_and_identify_speakers():
     if not st.session_state.df_merged_combined.empty:
         st.subheader("整形された議事録 (プレビュー)")
         st.dataframe(st.session_state.df_merged_combined)
+
+        # --- 整形前のDataFrameをExcelダウンロードする機能を追加 ---
+        raw_excel_buffer = BytesIO()
+        st.session_state.identified_df_combined.to_excel(raw_excel_buffer, index=False)
+        raw_excel_buffer.seek(0)
+        
+        base_name_raw = os.path.splitext(st.session_state.uploaded_file_name_combined)[0] if st.session_state.uploaded_file_name_combined else "raw_transcription_result"
+        st.download_button(
+            label="整形前の結果をExcelとしてダウンロード",
+            data=raw_excel_buffer,
+            file_name=f"{base_name_raw}_整形前結果.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="download_raw_combined_excel"
+        )
+        # --- ここまで追加 ---
 
         base_name = os.path.splitext(st.session_state.uploaded_file_name_combined)[0] if st.session_state.uploaded_file_name_combined else "transcription_result"
 
@@ -1112,25 +1110,25 @@ def transcribe_and_identify_speakers():
 
 def main():
     st.set_page_config(layout="wide")
-    mode = st.sidebar.selectbox(
+    mode = st.sidebar.radio(
         "アプリケーションを選択",
-        ["(1)文字起こしExcelの生成", "(2)文字起こしExcelの整え","(2')文字起こしに話者情報を追加", "(3)発言録テキスト生成","(4)文字起こしと話者識別（議事録形式）","(a)話者埋め込み作成", "(b)動画から音声を切り出しMP3で保存"]
+        ["(main)文字起こしと話者識別（議事録形式）", "(1)文字起こしExcelの生成", "(2)文字起こしExcelの整え", "(3)文字起こしに話者情報を追加", "(4)発言録テキスト生成", "(5)話者埋め込み作成", "(6)動画から音声を切り出しMP3で保存"]
     )
 
-    if mode == "(1)文字起こしExcelの生成":
+    if mode == "(main)文字起こしと話者識別（議事録形式）":
+        transcribe_and_identify_speakers()
+    elif mode == "(1)文字起こしExcelの生成":
         mojiokoshi()
     elif mode == "(2)文字起こしExcelの整え":
         gijiroku_seikei()
-    elif mode == "(3)発言録テキスト生成":
-        generate_transcript_text()
-    elif mode == "(a)話者埋め込み作成":
-        generate_embeddings()
-    elif mode == "(2')文字起こしに話者情報を追加":
+    elif mode == "(3)文字起こしに話者情報を追加":
         speaker_identification_in_mojiokoshi()
-    elif mode == "(b)動画から音声を切り出しMP3で保存":
+    elif mode == "(4)発言録テキスト生成":
+        generate_transcript_text()
+    elif mode == "(5)話者埋め込み作成":
+        generate_embeddings()
+    elif mode == "(6)動画から音声を切り出しMP3で保存":
         video_to_audio_cutter_app()
-    elif mode == "(4)文字起こしと話者識別（議事録形式）":
-        transcribe_and_identify_speakers()
 
 if __name__ == "__main__":
     main()
