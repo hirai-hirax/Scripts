@@ -950,11 +950,171 @@ def video_to_audio_cutter_app():
                     if os.path.exists(audio_path):
                         os.remove(audio_path)
 
+def transcribe_and_identify_speakers():
+    st.title("文字起こしと話者識別（議事録形式）")
+    st.write("オーディオファイル、話者埋め込みファイル、必要に応じてPDFファイルをアップロードしてください。")
+
+    st.sidebar.write("""
+    このアプリは、アップロードされた音声ファイルを文字起こしし、話者識別を行い、その結果を議事録形式でダウンロードできるようにします。
+    """)
+
+    duration = st.number_input("1推論当たりの時間(sec)", min_value=0, max_value=1800, value=600, step=1, key="combined_duration")
+
+    pdf_file = st.file_uploader("要約に使うPDFファイルを選択", type=["pdf"], key="combined_pdf_uploader")
+    uploaded_file = st.file_uploader("オーディオファイルを選択", type=["mp3", "wav", "m4a", "mp4", "webm", "ogg"], key="combined_audio_uploader")
+    uploaded_embedding_files = st.file_uploader("話者埋め込みファイルをアップロード（複数選択可）", type=["npy"], accept_multiple_files=True, key="combined_embeddings_uploader")
+
+    format_option = st.selectbox(
+        "話者表示形式を選択してください",
+        ["（話者）テキスト", "（話者）テキスト/前後改行あり", "話者＞テキスト", "話者：テキスト"],
+        index=0,
+        key="combined_transcript_format_selector"
+    )
+    similarity_threshold = st.number_input(
+        "話者識別の類似度閾値",
+        min_value=0.0,
+        max_value=1.0,
+        value=0.7,
+        step=0.01,
+        help="この閾値以下の類似度の場合、話者は「判定不可」として空欄になります。",
+        key="combined_similarity_threshold"
+    )
+
+    # Initialize session state variables if they don't exist
+    if 'raw_transcription_df_combined' not in st.session_state: # New session state variable
+        st.session_state.raw_transcription_df_combined = pd.DataFrame()
+    if 'identified_df_combined' not in st.session_state:
+        st.session_state.identified_df_combined = pd.DataFrame()
+    if 'df_merged_combined' not in st.session_state:
+        st.session_state.df_merged_combined = pd.DataFrame()
+    if 'uploaded_file_name_combined' not in st.session_state:
+        st.session_state.uploaded_file_name_combined = None
+    if 'format_option_combined' not in st.session_state:
+        st.session_state.format_option_combined = format_option
+
+
+    if uploaded_file is not None and uploaded_embedding_files is not None:
+        if st.button("文字起こしと話者識別を開始", key="start_combined_process"):
+            try:
+                st.info("文字起こしを開始します...")
+                seg_df = transcribe_audio_to_dataframe(uploaded_file, duration, pdf_file)
+
+                if not seg_df.empty:
+                    st.info("話者識別を開始します...")
+                    identified_df = identify_speakers_in_dataframe(uploaded_file, seg_df.copy(), uploaded_embedding_files, similarity_threshold)
+                    st.session_state.identified_df_combined = identified_df # Store in session state
+
+                    # --- 整形前のDataFrameをExcelダウンロードする機能を追加 ---
+                    st.subheader("整形前の文字起こしと話者識別結果")
+                    st.dataframe(st.session_state.identified_df_combined)
+
+                    raw_excel_buffer = BytesIO()
+                    st.session_state.identified_df_combined.to_excel(raw_excel_buffer, index=False)
+                    raw_excel_buffer.seek(0)
+                    
+                    base_name_raw = os.path.splitext(uploaded_file.name)[0] if uploaded_file.name else "raw_transcription_result"
+                    st.download_button(
+                        label="整形前の結果をExcelとしてダウンロード",
+                        data=raw_excel_buffer,
+                        file_name=f"{base_name_raw}_整形前結果.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key="download_raw_combined_excel"
+                    )
+                    # --- ここまで追加 ---
+
+                    # --- 議事録形式への整形ロジック ---
+                    st.info("議事録形式に整形中...")
+                    df_processed = st.session_state.identified_df_combined.copy()
+
+                    df_processed['speaker_filled'] = df_processed['speaker'].replace('', pd.NA)
+                    df_processed['speaker_filled'] = df_processed['speaker_filled'].ffill()
+                    if pd.isna(df_processed.loc[0, 'speaker_filled']):
+                        df_processed.loc[0, 'speaker_filled'] = "UNKNOWN_SPEAKER_0"
+
+                    df_processed['group_id'] = (df_processed['speaker_filled'] != df_processed['speaker_filled'].shift()).cumsum()
+
+                    df_merged = df_processed.groupby('group_id').agg(
+                        start=('start', 'min'),
+                        end=('end', 'max'),
+                        speaker=('speaker_filled', 'first'),
+                        text=('text', ' '.join)
+                    ).reset_index(drop=True)
+
+                    df_merged['speaker'] = df_merged['speaker'].replace("UNKNOWN_SPEAKER_0", "")
+                    st.session_state.df_merged_combined = df_merged # Store in session state
+                    st.session_state.uploaded_file_name_combined = uploaded_file.name # Store file name for downloads
+                    st.session_state.format_option_combined = format_option # Store format option
+
+                    st.success("文字起こしと話者識別、議事録整形が完了しました！")
+                else:
+                    st.info("文字起こし結果がありませんでした。")
+
+            except Exception as e:
+                st.error(f"エラーが発生しました: {str(e)}")
+    else:
+        st.info("オーディオファイルと話者埋め込みファイルをアップロードしてください。")
+
+    # --- Display DataFrames and Download options (rendered outside the button click, based on session state) ---
+    if not st.session_state.identified_df_combined.empty:
+        st.subheader("文字起こしと話者識別結果 (プレビュー)")
+        st.dataframe(st.session_state.identified_df_combined)
+
+    if not st.session_state.df_merged_combined.empty:
+        st.subheader("整形された議事録 (プレビュー)")
+        st.dataframe(st.session_state.df_merged_combined)
+
+        base_name = os.path.splitext(st.session_state.uploaded_file_name_combined)[0] if st.session_state.uploaded_file_name_combined else "transcription_result"
+
+        # Excelダウンロード
+        excel_buffer = BytesIO()
+        st.session_state.df_merged_combined.to_excel(excel_buffer, index=False)
+        excel_buffer.seek(0)
+        st.download_button(
+            label="整形済みExcelファイルをダウンロード",
+            data=excel_buffer,
+            file_name=f"{base_name}_議事録.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="download_combined_excel"
+        )
+
+        # テキストファイルダウンロード
+        transcript_lines = []
+        for index, row in st.session_state.df_merged_combined.iterrows():
+            speaker = row.get('speaker', '')
+            text = row.get('text', '')
+
+            speaker_str = str(speaker) if pd.notna(speaker) else ""
+            text_str = str(text) if pd.notna(text) else ""
+
+            # Use the format option stored in session state
+            if speaker_str:
+                if st.session_state.format_option_combined == "（話者）テキスト":
+                    transcript_lines.append(f"（{speaker_str}）{text_str}")
+                elif st.session_state.format_option_combined == "（話者）テキスト/前後改行あり":
+                    transcript_lines.append(f"\n（{speaker_str}）\n{text_str}")
+                elif st.session_state.format_option_combined == "話者＞テキスト":
+                    transcript_lines.append(f"{speaker_str}＞{text_str}")
+                elif st.session_state.format_option_combined == "話者：テキスト":
+                    transcript_lines.append(f"{speaker_str}：{text_str}")
+                else:
+                    transcript_lines.append(f"（{speaker_str}）{text_str}")
+            else:
+                transcript_lines.append(text_str)
+
+        transcript_content = "\n".join(transcript_lines)
+        st.download_button(
+            label="議事録テキストファイルをダウンロード",
+            data=transcript_content.encode('utf-8'),
+            file_name=f"{base_name}_議事録.txt",
+            mime='text/plain',
+            key="download_combined_text"
+        )
+
 def main():
     st.set_page_config(layout="wide")
     mode = st.sidebar.selectbox(
         "アプリケーションを選択",
-        ["(1)文字起こしExcelの生成", "(2)文字起こしExcelの整え","(2')文字起こしに話者情報を追加", "(3)発言録テキスト生成","(a)話者埋め込み作成", "(b)動画から音声を切り出しMP3で保存"]
+        ["(1)文字起こしExcelの生成", "(2)文字起こしExcelの整え","(2')文字起こしに話者情報を追加", "(3)発言録テキスト生成","(4)文字起こしと話者識別（議事録形式）","(a)話者埋め込み作成", "(b)動画から音声を切り出しMP3で保存"]
     )
 
     if mode == "(1)文字起こしExcelの生成":
@@ -969,6 +1129,8 @@ def main():
         speaker_identification_in_mojiokoshi()
     elif mode == "(b)動画から音声を切り出しMP3で保存":
         video_to_audio_cutter_app()
+    elif mode == "(4)文字起こしと話者識別（議事録形式）":
+        transcribe_and_identify_speakers()
 
 if __name__ == "__main__":
     main()

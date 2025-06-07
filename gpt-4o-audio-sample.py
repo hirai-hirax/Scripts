@@ -31,40 +31,17 @@ mono_audio = audio.set_channels(1)
 output_wav = "sample.wav"
 mono_audio.export(output_wav, format="wav")
 
-# 変換したWAVファイルを読み込み、Base64エンコードする
-with open(output_wav, "rb") as wav_file:
-    encoded_string = base64.b64encode(wav_file.read()).decode("utf-8")
-
-prompt = """
+# 変換したWAVファイルを読み込み、文字起こしAPIに送信する
+with open(output_wav, "rb") as audio_file:
+    prompt = """
 以下の音声ファイルの内容を、できるだけ忠実に文字起こししてください。
-
-複数の話者が含まれている場合、各話者の発言をセットで出力してください。
-話者の名前が明確でない場合は、自動的に( 話者A』『話者B』などの名前を割り当て、それぞれの発言内容を記録してください。
-最終的な文字起こしは、誰が何を発言したかが明確にわかる形式で、CSV形式で出力してください。
 """
+    completion = client.audio.transcriptions.create(
+        model="gpt-4o-transcribe", # Azure OpenAIのデプロイ名に合わせてください
+        file=audio_file,
+        prompt=prompt,
+        response_format="json", # または "json", "srt", "vtt", "text"
+        timestamp_granularities=["segment"]
+    )
 
-# 変換後の音声データ（Base64エンコード済み）をAzure OpenAIに送信する例
-completion = client.chat.completions.create(
-    model="gpt-4o-mini-realtime-preview",
-    modalities=["text"],
-    messages=[
-        {
-            "role": "user",
-            "content": [
-                {
-                    "type": "text",
-                    "text": prompt
-                },
-                {
-                    "type": "input_audio",
-                    "input_audio": {
-                        "data": encoded_string,
-                        "format": "wav"
-                    }
-                }
-            ]
-        },
-    ]
-)
-
-print(completion)
+print(completion.model_dump_json(indent=2))
