@@ -33,6 +33,38 @@ summarizing_prompt1 = """
     ユーザーからテキストを渡されます。当該のテキストの内容を読んだ上で、150文字程度の要約を生成してください。
 """
 
+proofreading_prompt = """
+あなたは議事録の校正を行う専門家です。以下の議事録テキストと会議資料を参照して、以下の作業を行ってください：
+
+1. 表現の修正：
+   - 話し言葉を適切な書き言葉に修正
+   - 文法や表現の改善
+   - 読みやすさの向上
+   - 敬語の適切な使用
+
+2. 全体サマリーの作成：
+   - 会議の主要な議題と決定事項
+   - 重要なポイントの要約
+   - アクションアイテム（もしあれば）
+
+会議資料の内容も参考にして、より正確で完成度の高い議事録に仕上げてください。
+
+【会議資料の内容】
+{pdf_content}
+
+【元の議事録】
+{original_transcript}
+
+【校正指示】
+上記の議事録を校正し、以下の形式で出力してください：
+
+=== 校正後の議事録 ===
+（ここに校正された議事録本文を記載）
+
+=== 会議サマリー ===
+（ここに会議の全体サマリーを記載）
+"""
+
 def get_text_from_pdf(file: BytesIO):
     # ファイル全体をバイト列として読み込む
     file_bytes = file.read()
@@ -790,6 +822,115 @@ def generate_transcript_text():
             st.error(f"ファイルの処理中にエラーが発生しました: {e}")
             st.info("アップロードされたExcelファイルが正しい形式であり、必要な列 ('speaker', 'text') が含まれているか確認してください。")
 
+def proofread_meeting_minutes():
+    st.title("議事録校正")
+    st.write("生成された議事録テキストと会議資料PDFをアップロードして、表現の修正と全体サマリーを生成します。")
+
+    st.sidebar.write("""
+    この機能では、既存の議事録テキストと会議資料PDFを使用して、以下の校正を行います：
+    
+    1. 表現の修正：
+       - 話し言葉を適切な書き言葉に修正
+       - 文法や表現の改善
+       - 読みやすさの向上
+       - 敬語の適切な使用
+    
+    2. 全体サマリーの作成：
+       - 会議の主要な議題と決定事項
+       - 重要なポイントの要約
+       - アクションアイテム（もしあれば）
+    """)
+
+    # テキスト入力方法の選択
+    input_method = st.radio(
+        "議事録テキストの入力方法を選択してください",
+        ["テキストファイル(.txt)をアップロード", "テキストボックスに直接入力"],
+        key="input_method_selector"
+    )
+
+    transcript_text = ""
+    
+    if input_method == "テキストファイル(.txt)をアップロード":
+        uploaded_text_file = st.file_uploader(
+            "議事録テキストファイルを選択してください",
+            type=["txt"],
+            key="upload_text_file_for_proofreading"
+        )
+        
+        if uploaded_text_file is not None:
+            try:
+                transcript_text = uploaded_text_file.read().decode('utf-8')
+                st.success("テキストファイルが正常に読み込まれました。")
+                st.text_area("読み込まれたテキスト（プレビュー）", transcript_text[:500] + "..." if len(transcript_text) > 500 else transcript_text, height=150)
+            except Exception as e:
+                st.error(f"テキストファイルの読み込み中にエラーが発生しました: {e}")
+    
+    else:  # テキストボックスに直接入力
+        transcript_text = st.text_area(
+            "議事録テキストを入力してください",
+            height=300,
+            key="direct_text_input_for_proofreading",
+            placeholder="ここに議事録テキストを貼り付けてください..."
+        )
+
+    # PDFファイルアップロード
+    pdf_file = st.file_uploader(
+        "会議資料PDFファイルを選択してください（オプション）",
+        type=["pdf"],
+        key="upload_pdf_for_proofreading"
+    )
+
+    # 校正実行
+    if transcript_text.strip() and st.button("議事録を校正", key="start_proofreading"):
+        if not transcript_text.strip():
+            st.error("議事録テキストが入力されていません。")
+            return
+
+        try:
+            with st.spinner("議事録を校正中..."):
+                # PDFの内容を取得（オプション）
+                pdf_content = ""
+                if pdf_file is not None:
+                    try:
+                        pdf_content = get_text_from_pdf(pdf_file)
+                        st.info("会議資料PDFの内容も参考にして校正を行います。")
+                    except Exception as e:
+                        st.warning(f"PDFの読み込み中にエラーが発生しましたが、テキストのみで校正を続行します: {e}")
+                        pdf_content = "PDFの読み込みに失敗しました。"
+                else:
+                    pdf_content = "会議資料PDFは提供されていません。"
+
+                # プロンプトを作成
+                formatted_prompt = proofreading_prompt.format(
+                    pdf_content=pdf_content,
+                    original_transcript=transcript_text
+                )
+
+                # GPTで校正実行
+                proofread_result = generate_summary("gpt-4o", formatted_prompt, "")
+
+                st.success("議事録の校正が完了しました！")
+
+                # 結果表示
+                st.subheader("校正結果")
+                st.text_area("校正された議事録", proofread_result, height=400)
+
+                # ダウンロードボタン
+                st.download_button(
+                    label="校正済み議事録をダウンロード",
+                    data=proofread_result.encode('utf-8'),
+                    file_name='proofread_meeting_minutes.txt',
+                    mime='text/plain',
+                    key="download_proofread_text"
+                )
+
+        except Exception as e:
+            st.error(f"校正処理中にエラーが発生しました: {e}")
+            st.info("Azure OpenAIの設定が正しく行われているか確認してください。")
+
+    elif not transcript_text.strip():
+        st.info("議事録テキストを入力してから校正ボタンを押してください。")
+
 
 def format_time(seconds):
     """Formats seconds into HH:MM:SS."""
@@ -1112,7 +1253,7 @@ def main():
     st.set_page_config(layout="wide")
     mode = st.sidebar.radio(
         "アプリケーションを選択",
-        ["(main)文字起こしと話者識別（議事録形式）", "(1)文字起こしExcelの生成", "(2)文字起こしExcelの整え", "(3)文字起こしに話者情報を追加", "(4)発言録テキスト生成", "(5)話者埋め込み作成", "(6)動画から音声を切り出しMP3で保存"]
+        ["(main)文字起こしと話者識別（議事録形式）", "(1)文字起こしExcelの生成", "(2)文字起こしExcelの整え", "(3)文字起こしに話者情報を追加", "(4)発言録テキスト生成", "(5)話者埋め込み作成", "(6)動画から音声を切り出しMP3で保存", "(7)議事録校正"]
     )
 
     if mode == "(main)文字起こしと話者識別（議事録形式）":
@@ -1129,6 +1270,8 @@ def main():
         generate_embeddings()
     elif mode == "(6)動画から音声を切り出しMP3で保存":
         video_to_audio_cutter_app()
+    elif mode == "(7)議事録校正":
+        proofread_meeting_minutes()
 
 if __name__ == "__main__":
     main()
